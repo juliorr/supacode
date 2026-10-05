@@ -24,14 +24,32 @@ if [ ! -d "${src}" ]; then
   exit 1
 fi
 
-# Prefer ~/Applications to avoid system permission issues with /Applications
-target_dir="${HOME}/Applications"
-mkdir -p "${target_dir}"
+# Install to /Applications if writable, fallback to ~/Applications
+if [ -w "/Applications" ] || [ -w "/Applications/${product}" ]; then
+  target_dir="/Applications"
+  # Clean up legacy copy in ~/Applications to prevent conflicting LaunchServices & TCC signatures
+  if [ -d "${HOME}/Applications/${product}" ]; then
+    echo "==> Limpiando copia duplicada en ${HOME}/Applications/${product}..."
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "${HOME}/Applications/${product}" || true
+    rm -rf "${HOME}/Applications/${product}"
+  fi
+else
+  target_dir="${HOME}/Applications"
+  mkdir -p "${target_dir}"
+fi
+
 dst="${target_dir}/${product}"
 
 echo "==> Instalando ${product} en ${dst}..."
-rm -rf "${dst}"
-ditto "${src}" "${dst}"
+if [ "${target_dir}" = "/Applications" ]; then
+  osascript -e 'tell application "Finder" to duplicate POSIX file "'"${src}"'" to POSIX file "/Applications" with replacing' >/dev/null
+else
+  rm -rf "${dst}"
+  ditto "${src}" "${dst}"
+fi
+
+echo "==> Aplicando firma ad-hoc con Designated Requirement persistente para TCC..."
+codesign --force --sign - --entitlements "${repo_root}/supacode/supacodeDebug.entitlements" -r='designated => identifier "app.supabit.supacode"' "${dst}"
 
 # Actualizar LaunchServices para que macOS registre la app de inmediato
 touch "${dst}"

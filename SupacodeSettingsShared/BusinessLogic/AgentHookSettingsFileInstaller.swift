@@ -7,15 +7,18 @@ nonisolated struct AgentHookSettingsFileInstaller {
 
   let fileManager: FileManager
   let errors: Errors
+  let isRootLevel: Bool
   let logWarning: @Sendable (String) -> Void
 
   init(
     fileManager: FileManager,
     errors: Errors,
+    isRootLevel: Bool = false,
     logWarning: @escaping @Sendable (String) -> Void = { settingsInstallerLogger.warning($0) }
   ) {
     self.fileManager = fileManager
     self.errors = errors
+    self.isRootLevel = isRootLevel
     self.logWarning = logWarning
   }
 
@@ -45,7 +48,18 @@ nonisolated struct AgentHookSettingsFileInstaller {
       let settingsObject = try loadSettingsObject(at: settingsURL)
       let expected = Self.commands(from: hookGroupsByEvent)
       guard !expected.isEmpty else { return .notInstalled }
-      let actual = Self.installedSupacodeCommands(in: settingsObject)
+
+      if isRootLevel {
+        if settingsObject["hooks"] != nil {
+          let legacyCommands = Self.installedSupacodeCommands(in: settingsObject, isRootLevel: false)
+          let rootCommands = Self.installedSupacodeCommands(in: settingsObject, isRootLevel: true)
+          if !legacyCommands.isEmpty || !rootCommands.isEmpty {
+            return .outdated
+          }
+        }
+      }
+
+      let actual = Self.installedSupacodeCommands(in: settingsObject, isRootLevel: isRootLevel)
       if actual.isEmpty { return .notInstalled }
       guard actual == expected else { return .outdated }
       if let additionalOutdatedIfInstalled, additionalOutdatedIfInstalled(settingsObject) {
@@ -62,13 +76,21 @@ nonisolated struct AgentHookSettingsFileInstaller {
   /// via `AgentHookCommandOwnership` so user-authored hooks are never
   /// treated as "ours."
   private static func installedSupacodeCommands(
-    in settingsObject: [String: JSONValue]
+    in settingsObject: [String: JSONValue],
+    isRootLevel: Bool = false
   ) -> Set<String> {
-    guard let hooksValue = settingsObject["hooks"],
-      let hooksObject = hooksValue.objectValue
-    else { return [] }
+    let hooksObject: [String: JSONValue]
+    if isRootLevel {
+      hooksObject = settingsObject
+    } else {
+      guard let hooksValue = settingsObject["hooks"],
+        let obj = hooksValue.objectValue
+      else { return [] }
+      hooksObject = obj
+    }
     var commands = Set<String>()
-    for (_, value) in hooksObject {
+    for (event, value) in hooksObject {
+      if isRootLevel && event == "hooks" { continue }
       guard let groups = value.arrayValue else { continue }
       for group in groups {
         guard let groupObject = group.objectValue,
@@ -114,15 +136,42 @@ nonisolated struct AgentHookSettingsFileInstaller {
   ) throws {
     _ = try hookGroupsByEvent()  // Eval for parity with `install` errors; we don't use the value.
     var settingsObject = try loadSettingsObject(at: settingsURL)
-    // Symmetric with `install`: refuse to overwrite a non-object `hooks`
-    // value (would silently destroy user data we don't own).
-    if let hooksValue = settingsObject["hooks"], hooksValue.objectValue == nil {
-      throw errors.invalidHooksObject()
+
+    if isRootLevel {
+      var pruned: [String: JSONValue] = [:]
+
+      if let legacyHooksValue = settingsObject["hooks"], let legacyHooksObject = legacyHooksValue.objectValue {
+        let prunedLegacy = try pruneAllSupacodeCommands(from: legacyHooksObject)
+        for (event, val) in prunedLegacy {
+          let existingGroups = pruned[event]?.arrayValue ?? []
+          pruned[event] = .array(existingGroups + (val.arrayValue ?? []))
+        }
+      }
+      settingsObject.removeValue(forKey: "hooks")
+
+      for (event, value) in settingsObject {
+        if let groups = value.arrayValue {
+          let filtered = groups.compactMap { stripAllSupacodeCommands(from: $0) }
+          if !filtered.isEmpty {
+            let existing = pruned[event]?.arrayValue ?? []
+            pruned[event] = .array(existing + filtered)
+          }
+        } else {
+          pruned[event] = value
+        }
+      }
+      try writeSettings(pruned, to: settingsURL)
+    } else {
+      // Symmetric with `install`: refuse to overwrite a non-object `hooks`
+      // value (would silently destroy user data we don't own).
+      if let hooksValue = settingsObject["hooks"], hooksValue.objectValue == nil {
+        throw errors.invalidHooksObject()
+      }
+      let hooksObject = settingsObject["hooks"]?.objectValue ?? [:]
+      let pruned = try pruneAllSupacodeCommands(from: hooksObject)
+      settingsObject["hooks"] = .object(pruned)
+      try writeSettings(settingsObject, to: settingsURL)
     }
-    let hooksObject = settingsObject["hooks"]?.objectValue ?? [:]
-    let pruned = try pruneAllSupacodeCommands(from: hooksObject)
-    settingsObject["hooks"] = .object(pruned)
-    try writeSettings(settingsObject, to: settingsURL)
   }
 
   /// `install = uninstall + append`: strip every Supacode-managed entry from
@@ -135,17 +184,49 @@ nonisolated struct AgentHookSettingsFileInstaller {
   ) throws {
     let canonicalGroups = try hookGroupsByEvent()
     var settingsObject = try loadSettingsObject(at: settingsURL)
-    if let hooksValue = settingsObject["hooks"], hooksValue.objectValue == nil {
-      throw errors.invalidHooksObject()
+
+    if isRootLevel {
+      var pruned: [String: JSONValue] = [:]
+
+      if let legacyHooksValue = settingsObject["hooks"], let legacyHooksObject = legacyHooksValue.objectValue {
+        let prunedLegacy = try pruneAllSupacodeCommands(from: legacyHooksObject)
+        for (event, val) in prunedLegacy {
+          let existingGroups = pruned[event]?.arrayValue ?? []
+          pruned[event] = .array(existingGroups + (val.arrayValue ?? []))
+        }
+      }
+      settingsObject.removeValue(forKey: "hooks")
+
+      for (event, value) in settingsObject {
+        if let groups = value.arrayValue {
+          let filtered = groups.compactMap { stripAllSupacodeCommands(from: $0) }
+          if !filtered.isEmpty {
+            let existing = pruned[event]?.arrayValue ?? []
+            pruned[event] = .array(existing + filtered)
+          }
+        } else {
+          pruned[event] = value
+        }
+      }
+
+      for (event, groups) in canonicalGroups {
+        let existingGroups = pruned[event]?.arrayValue ?? []
+        pruned[event] = .array(existingGroups + groups)
+      }
+      try writeSettings(pruned, to: settingsURL)
+    } else {
+      if let hooksValue = settingsObject["hooks"], hooksValue.objectValue == nil {
+        throw errors.invalidHooksObject()
+      }
+      let existing = settingsObject["hooks"]?.objectValue ?? [:]
+      var pruned = try pruneAllSupacodeCommands(from: existing)
+      for (event, groups) in canonicalGroups {
+        let existingGroups = pruned[event]?.arrayValue ?? []
+        pruned[event] = .array(existingGroups + groups)
+      }
+      settingsObject["hooks"] = .object(pruned)
+      try writeSettings(settingsObject, to: settingsURL)
     }
-    let existing = settingsObject["hooks"]?.objectValue ?? [:]
-    var pruned = try pruneAllSupacodeCommands(from: existing)
-    for (event, groups) in canonicalGroups {
-      let existingGroups = pruned[event]?.arrayValue ?? []
-      pruned[event] = .array(existingGroups + groups)
-    }
-    settingsObject["hooks"] = .object(pruned)
-    try writeSettings(settingsObject, to: settingsURL)
   }
 
   /// Builds a fresh hooks map with every Supacode-managed command

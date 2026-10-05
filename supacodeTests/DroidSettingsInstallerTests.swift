@@ -58,8 +58,9 @@ struct DroidSettingsInstallerTests {
 
     let data = try Data(contentsOf: settingsURL)
     let root = try JSONDecoder().decode(JSONValue.self, from: data)
-    let hooksObject = try #require(root.objectValue?["hooks"]?.objectValue)
+    let hooksObject = try #require(root.objectValue)
 
+    #expect(root.objectValue?["hooks"] == nil)
     #expect(hooksObject["SessionStart"] != nil)
     #expect(hooksObject["UserPromptSubmit"] != nil)
     #expect(hooksObject["PreToolUse"] != nil)
@@ -84,15 +85,13 @@ struct DroidSettingsInstallerTests {
     let staleCommand = AgentHookSettingsCommand.compositeCommand(
       events: [.busy], forwardStdinAsNotification: false, agent: .droid)
     let stale: JSONValue = .object([
-      "hooks": .object([
-        "SessionStart": .array([
-          .object([
-            "hooks": .array([
-              .object([
-                "type": "command",
-                "command": .string(staleCommand),
-                "timeout": 5,
-              ])
+      "SessionStart": .array([
+        .object([
+          "hooks": .array([
+            .object([
+              "type": "command",
+              "command": .string(staleCommand),
+              "timeout": 5,
             ])
           ])
         ])
@@ -115,7 +114,7 @@ struct DroidSettingsInstallerTests {
     let settingsURL = DroidSettingsInstaller.settingsURL(homeDirectoryURL: homeURL)
     let data = try Data(contentsOf: settingsURL)
     let root = try JSONDecoder().decode(JSONValue.self, from: data)
-    let hooksObject = root.objectValue?["hooks"]?.objectValue ?? [:]
+    let hooksObject = root.objectValue ?? [:]
     #expect(hooksObject.isEmpty)
     #expect(try installer.installState() == .notInstalled)
   }
@@ -131,18 +130,16 @@ struct DroidSettingsInstallerTests {
     )
     let existing = """
       {
-        "hooks": {
-          "PostToolUse": [
-            {
-              "hooks": [
-                {
-                  "type": "command",
-                  "command": "prettier --write"
-                }
-              ]
-            }
-          ]
-        }
+        "PostToolUse": [
+          {
+            "hooks": [
+              {
+                "type": "command",
+                "command": "prettier --write"
+              }
+            ]
+          }
+        ]
       }
       """
     try existing.write(to: settingsURL, atomically: true, encoding: .utf8)
@@ -167,18 +164,16 @@ struct DroidSettingsInstallerTests {
     )
     let existing = """
       {
-        "hooks": {
-          "PostToolUse": [
-            {
-              "hooks": [
-                {
-                  "type": "command",
-                  "command": "prettier --write"
-                }
-              ]
-            }
-          ]
-        }
+        "PostToolUse": [
+          {
+            "hooks": [
+              {
+                "type": "command",
+                "command": "prettier --write"
+              }
+            ]
+          }
+        ]
       }
       """
     try existing.write(to: settingsURL, atomically: true, encoding: .utf8)
@@ -191,5 +186,51 @@ struct DroidSettingsInstallerTests {
     #expect(text.contains("prettier --write"))
     #expect(!text.contains(AgentHookSettingsCommand.ownershipMarker))
     #expect(try installer.installState() == .notInstalled)
+  }
+
+  @Test func installMigratesLegacyNestedHooksWrapper() throws {
+    let homeURL = makeTempHomeURL()
+    defer { try? fileManager.removeItem(at: homeURL) }
+
+    let settingsURL = DroidSettingsInstaller.settingsURL(homeDirectoryURL: homeURL)
+    try fileManager.createDirectory(
+      at: settingsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    let managedCommand = AgentHookSettingsCommand.compositeCommand(
+      events: [.idle], forwardStdinAsNotification: false, agent: .droid)
+    let legacy: JSONValue = .object([
+      "hooks": .object([
+        "PostToolUse": .array([
+          .object([
+            "hooks": .array([
+              .object([
+                "type": "command",
+                "command": "prettier --write",
+              ]),
+              .object([
+                "type": "command",
+                "command": .string(managedCommand),
+              ]),
+            ])
+          ])
+        ])
+      ])
+    ])
+    try JSONEncoder().encode(legacy).write(to: settingsURL)
+
+    let installer = DroidSettingsInstaller(homeDirectoryURL: homeURL, fileManager: fileManager)
+    #expect(try installer.installState() == .outdated)
+
+    try installer.installAllHooks()
+
+    let data = try Data(contentsOf: settingsURL)
+    let root = try JSONDecoder().decode(JSONValue.self, from: data)
+    #expect(root.objectValue?["hooks"] == nil)
+
+    let text = try String(contentsOf: settingsURL, encoding: .utf8)
+    #expect(text.contains("prettier --write"))
+    #expect(text.contains(AgentHookSettingsCommand.ownershipMarker))
+    #expect(try installer.installState() == .installed)
   }
 }

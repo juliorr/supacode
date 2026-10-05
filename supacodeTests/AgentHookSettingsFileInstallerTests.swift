@@ -504,6 +504,32 @@ struct AgentHookSettingsFileInstallerTests {
     #expect(!AgentFileProbe.isFileNotFound(CocoaError(.fileReadNoPermission)))
     #expect(!AgentFileProbe.isFileNotFound(NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))))
   }
+
+  @Test func rootLevelInstallAndUninstall() throws {
+    let url = makeTempURL()
+    defer { try? fileManager.removeItem(at: url.deletingLastPathComponent()) }
+
+    let installer = AgentHookSettingsFileInstaller(
+      fileManager: fileManager,
+      errors: makeErrors(),
+      isRootLevel: true
+    )
+    let groups = sampleHookGroups()
+
+    try installer.install(settingsURL: url, hookGroupsByEvent: groups)
+
+    let data = try Data(contentsOf: url)
+    let root = try JSONDecoder().decode(JSONValue.self, from: data)
+    #expect(root.objectValue?["hooks"] == nil)
+    #expect(root.objectValue?["Stop"] != nil)
+    #expect(try installer.installState(settingsURL: url, hookGroupsByEvent: groups) == .installed)
+
+    try installer.uninstall(settingsURL: url, hookGroupsByEvent: groups)
+    let dataAfterUninstall = try Data(contentsOf: url)
+    let rootAfterUninstall = try JSONDecoder().decode(JSONValue.self, from: dataAfterUninstall)
+    #expect(rootAfterUninstall.objectValue?["Stop"] == nil)
+    #expect(try installer.installState(settingsURL: url, hookGroupsByEvent: groups) == .notInstalled)
+  }
 }
 
 private enum TestInstallerError: Error, Equatable {

@@ -72,7 +72,8 @@ nonisolated struct DroidSettingsInstaller {
         invalidHooksObject: { DroidSettingsInstallerError.invalidHooksObject },
         invalidJSON: { DroidSettingsInstallerError.invalidJSON($0) },
         invalidRootObject: { DroidSettingsInstallerError.invalidRootObject }
-      )
+      ),
+      isRootLevel: true
     )
   }
 }

@@ -1366,7 +1366,7 @@ struct SettingsFeatureAgentIntegrationTests {
     // agents but keeps the persistent error (`pi`).
     #expect(
       state.mainListAgentRows == [
-        .claude, .codex, .copilot, .droid, .antigravity, .hermes, .kimi, .kiro, .opencode, .pi,
+        .claude, .codex, .copilot, .cursor, .droid, .antigravity, .hermes, .kimi, .kiro, .opencode, .pi,
       ]
     )
     // A transient error is modal-only; a persistent error is main-list-only; a

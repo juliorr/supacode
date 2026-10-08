@@ -25,6 +25,7 @@ nonisolated enum AgentIntegrationFactory {
       case .claude: claude(configDirectoryURL: resolvedConfigDir, fileManager: fileManager)
       case .codex: codex(configDirectoryURL: resolvedConfigDir, fileManager: fileManager)
       case .copilot: copilot(configDirectoryURL: resolvedConfigDir, fileManager: fileManager)
+      case .cursor: cursor(configDirectoryURL: resolvedConfigDir, fileManager: fileManager)
       case .droid: droid(configDirectoryURL: resolvedConfigDir, fileManager: fileManager)
       case .grok: grok(configDirectoryURL: resolvedConfigDir, fileManager: fileManager)
       case .hermes: hermes(configDirectoryURL: resolvedConfigDir, fileManager: fileManager)
@@ -236,6 +237,22 @@ nonisolated enum AgentIntegrationFactory {
         uninstall: { try installer.uninstall() }
       ),
       skillsComponent(agent: .copilot, configDirectoryURL: configDirectoryURL),
+    ]
+  }
+
+  private static func cursor(configDirectoryURL: URL, fileManager: FileManager)
+    -> [AgentIntegration.Component]
+  {
+    let installer = CursorSettingsInstaller(
+      configDirectoryURL: configDirectoryURL, fileManager: fileManager)
+    return [
+      AgentIntegration.Component(
+        kind: .hooks,
+        state: { try installer.installState() },
+        install: { try installer.installAllHooks() },
+        uninstall: { try installer.uninstallAllHooks() }
+      ),
+      skillsComponent(agent: .cursor, configDirectoryURL: configDirectoryURL),
     ]
   }
 

@@ -74,7 +74,7 @@ struct SkillAgentTests {
       SkillAgent.allCases.filter { $0.supports(.inputNeededBadge) }
         == [.claude, .copilot, .droid, .grok, .kimi, .opencode])
     #expect(SkillAgent.allCases.filter { $0.supports(.errorDetection) } == [.antigravity, .claude])
-    #expect(SkillAgent.allCases.filter { $0.supports(.compactionBadge) } == [.claude])
+    #expect(SkillAgent.allCases.filter { $0.supports(.compactionBadge) } == [.claude, .droid])
     #expect(SkillAgent.allCases.filter { !$0.supports(.notifications) } == [.opencode])
     #expect(SkillAgent.allCases.filter { !$0.supports(.customFolder) } == [.antigravity, .kiro])
   }

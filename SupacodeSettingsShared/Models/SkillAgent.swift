@@ -98,7 +98,7 @@ public nonisolated enum SkillAgent: String, Equatable, Sendable, CaseIterable, C
     case .errorDetection:
       self == .claude || self == .antigravity
     case .compactionBadge:
-      self == .claude
+      self == .claude || self == .droid
     case .notifications:
       self != .opencode
     case .customFolder:

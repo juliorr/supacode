@@ -65,11 +65,23 @@ struct DroidSettingsInstallerTests {
     #expect(hooksObject["UserPromptSubmit"] != nil)
     #expect(hooksObject["PreToolUse"] != nil)
     #expect(hooksObject["PostToolUse"] != nil)
+    #expect(hooksObject["PreCompact"] != nil)
     #expect(hooksObject["Notification"] != nil)
     #expect(hooksObject["Stop"] != nil)
     #expect(hooksObject["SessionEnd"] != nil)
 
     #expect(try installer.installState() == .installed)
+  }
+
+  @Test func awaitingInputMatcherUsesDroidToolNames() throws {
+    let hooks = try DroidHookSettings.hooksByEvent()
+    let preToolUse = try #require(hooks["PreToolUse"])
+    let matchers = preToolUse.compactMap { $0.objectValue?["matcher"]?.stringValue }
+
+    // Droid's tools are `AskUser` and `ExitSpecMode`; Claude's
+    // `AskUserQuestion|ExitPlanMode` never matches a droid tool call.
+    #expect(matchers.contains("AskUser|ExitSpecMode"))
+    #expect(!matchers.contains("AskUserQuestion|ExitPlanMode"))
   }
 
   @Test func installStateReturnsOutdatedWhenManagedBodyDrifted() throws {

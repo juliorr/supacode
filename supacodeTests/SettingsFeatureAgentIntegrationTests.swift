@@ -362,6 +362,160 @@ struct SettingsFeatureAgentIntegrationTests {
     #expect(agentsFile.agents.isEmpty)
   }
 
+  // MARK: - First-run auto-install.
+
+  @Test(.dependencies) func detectedNotInstalledAgentAutoInstalls() async {
+    // The config-dir probe says the user runs this agent, and nothing was ever
+    // installed, so the refresh wires the hooks up: a fresh user gets badges
+    // and the Active hoist without a Settings trip.
+    @Shared(.agentsFile) var agentsFile
+    var state = SettingsFeature.State()
+    state.agentIntegrationStates[.droid] = .checking
+    state.configDirectoriesOnDisk = [.standard(.droid)]
+
+    let store = TestStore(initialState: state) {
+      SettingsFeature()
+    } withDependencies: {
+      $0[AgentIntegrationClient.self].install = { _ in }
+      $0[AgentIntegrationClient.self].state = { _ in .installed }
+    }
+
+    await store.send(.agentIntegrationChecked(.standard(.droid), .success(.notInstalled))) {
+      $0.agentIntegrationStates[.droid] = .ready(.notInstalled)
+      $0.autoInstalledTargets.insert(.standard(.droid))
+    }
+    await store.receive(\.agentIntegrationInstallTapped) {
+      $0.agentIntegrationStates[.droid] = .installing
+    }
+    await store.receive(\.agentIntegrationCompleted) {
+      $0.agentIntegrationStates[.droid] = .ready(.installed)
+    }
+    #expect(agentsFile.agents == [AgentInstallRecord(agent: .droid, path: nil)])
+
+    // The once-per-session guard is consumed: a second `.notInstalled` probe
+    // (e.g. a stacked activation) must not fire a second auto-install.
+    await store.send(.agentIntegrationChecked(.standard(.droid), .success(.notInstalled))) {
+      $0.agentIntegrationStates[.droid] = .ready(.notInstalled)
+    }
+  }
+
+  @Test(.dependencies) func undetectedAgentDoesNotAutoInstall() async {
+    // No config directory on disk means the CLI never ran, so there is nothing
+    // to wire up: the row just settles as the collapsed install prompt.
+    var state = SettingsFeature.State()
+    state.agentIntegrationStates[.droid] = .checking
+    state.configDirectoriesOnDisk = []
+
+    let store = TestStore(initialState: state) {
+      SettingsFeature()
+    } withDependencies: {
+      $0[AgentIntegrationClient.self].install = { _ in }
+      $0[AgentIntegrationClient.self].state = { _ in .installed }
+    }
+
+    await store.send(.agentIntegrationChecked(.standard(.droid), .success(.notInstalled))) {
+      $0.agentIntegrationStates[.droid] = .ready(.notInstalled)
+    }
+  }
+
+  @Test(.dependencies) func optedOutTargetDoesNotAutoInstall() async {
+    @Shared(.agentsFile) var agentsFile
+    $agentsFile.withLock { $0.optOuts = [AgentInstallRecord(agent: .droid, path: nil)] }
+    var state = SettingsFeature.State()
+    state.agentIntegrationStates[.droid] = .checking
+    state.configDirectoriesOnDisk = [.standard(.droid)]
+
+    let store = TestStore(initialState: state) {
+      SettingsFeature()
+    } withDependencies: {
+      $0[AgentIntegrationClient.self].install = { _ in }
+      $0[AgentIntegrationClient.self].state = { _ in .installed }
+    }
+
+    await store.send(.agentIntegrationChecked(.standard(.droid), .success(.notInstalled))) {
+      $0.agentIntegrationStates[.droid] = .ready(.notInstalled)
+    }
+  }
+
+  @Test(.dependencies) func uninstallOptsOutAndBlocksLaterAutoInstall() async {
+    // Uninstalling is deliberate removal: it must earn an opt-out that later
+    // activations' auto-setup respects, or the hooks would keep resurrecting.
+    @Shared(.agentsFile) var agentsFile
+    $agentsFile.withLock { $0.agents = [AgentInstallRecord(agent: .droid, path: nil)] }
+    var state = SettingsFeature.State()
+    state.agentIntegrationStates[.droid] = .ready(.installed)
+    state.configDirectoriesOnDisk = [.standard(.droid)]
+
+    let store = TestStore(initialState: state) {
+      SettingsFeature()
+    } withDependencies: {
+      $0[AgentIntegrationClient.self].uninstall = { _ in }
+      $0[AgentIntegrationClient.self].state = { _ in .notInstalled }
+    }
+
+    await store.send(.agentIntegrationUninstallTapped(.standard(.droid))) {
+      $0.agentIntegrationStates[.droid] = .uninstalling
+    }
+    await store.receive(\.agentIntegrationCompleted) {
+      $0.agentIntegrationStates[.droid] = .ready(.notInstalled)
+    }
+    #expect(agentsFile.agents.isEmpty)
+    #expect(agentsFile.optOuts == [AgentInstallRecord(agent: .droid, path: nil)])
+
+    // A later activation re-probes; the recorded opt-out keeps it removed, so
+    // the send must produce no effects and no state change at all.
+    await store.send(.agentIntegrationChecked(.standard(.droid), .success(.notInstalled)))
+  }
+
+  @Test(.dependencies) func manualInstallClearsTheOptOut() async {
+    // A manual (re)install is renewed consent, so it must clear the opt-out a
+    // past uninstall recorded.
+    @Shared(.agentsFile) var agentsFile
+    $agentsFile.withLock { $0.optOuts = [AgentInstallRecord(agent: .droid, path: nil)] }
+    var state = SettingsFeature.State()
+    state.agentIntegrationStates[.droid] = .ready(.notInstalled)
+
+    let store = TestStore(initialState: state) {
+      SettingsFeature()
+    } withDependencies: {
+      $0[AgentIntegrationClient.self].install = { _ in }
+      $0[AgentIntegrationClient.self].state = { _ in .installed }
+    }
+
+    await store.send(.agentIntegrationInstallTapped(.standard(.droid))) {
+      $0.agentIntegrationStates[.droid] = .installing
+    }
+    await store.receive(\.agentIntegrationCompleted) {
+      $0.agentIntegrationStates[.droid] = .ready(.installed)
+    }
+    #expect(agentsFile.agents == [AgentInstallRecord(agent: .droid, path: nil)])
+    #expect(agentsFile.optOuts.isEmpty)
+  }
+
+  @Test(.dependencies) func customTargetsNeverAutoInstall() async {
+    // Custom folders exist only by deliberate record, so even one that is
+    // present on disk reading `.notInstalled` is a wrong install to surface,
+    // never something to auto-write.
+    let customTarget = AgentInstallTarget(
+      agent: .claude, location: .custom(configDirectoryPath: "/tmp/supacode-claude-gn"))
+    @Shared(.agentsFile) var agentsFile
+    $agentsFile.withLock { $0.agents = [customTarget.installRecord] }
+    var state = SettingsFeature.State()
+    state.agentIntegrationStates[customTarget] = .checking
+    state.configDirectoriesOnDisk = [customTarget]
+
+    let store = TestStore(initialState: state) {
+      SettingsFeature()
+    } withDependencies: {
+      $0[AgentIntegrationClient.self].install = { _ in }
+      $0[AgentIntegrationClient.self].state = { _ in .installed }
+    }
+
+    await store.send(.agentIntegrationChecked(customTarget, .success(.notInstalled))) {
+      $0.agentIntegrationStates[customTarget] = .ready(.notInstalled)
+    }
+  }
+
   @Test(.dependencies) func probingAnInstalledDefaultReconcilesItIntoAgentsFile() async {
     // A default install found on disk with no record earns one, so `agents.json`
     // reconciles to what's actually installed.
@@ -622,6 +776,11 @@ struct SettingsFeatureAgentIntegrationTests {
       SettingsFeature()
     } withDependencies: {
       $0[AgentIntegrationClient.self].state = { _ in .notInstalled }
+      // The refresh's dir resolution rides the client now; keep the real stat
+      // so this test still exercises actual on-disk resolution.
+      $0[AgentIntegrationClient.self].configDirectoryExists = {
+        FileManager.default.fileExists(atPath: $0.configDirectory().path(percentEncoded: false))
+      }
     }
     store.exhaustivity = .off(showSkippedAssertions: false)
 
@@ -1207,7 +1366,7 @@ struct SettingsFeatureAgentIntegrationTests {
     // agents but keeps the persistent error (`pi`).
     #expect(
       state.mainListAgentRows == [
-        .claude, .codex, .copilot, .antigravity, .hermes, .kimi, .kiro, .opencode, .pi,
+        .claude, .codex, .copilot, .droid, .antigravity, .hermes, .kimi, .kiro, .opencode, .pi,
       ]
     )
     // A transient error is modal-only; a persistent error is main-list-only; a

@@ -99,12 +99,15 @@ public struct SettingsFeature {
     /// Per-install row state, keyed by target (agent + location) so two installs
     /// of one agent into different folders never share a row.
     public var agentIntegrationStates: [AgentInstallTarget: AgentIntegrationRowState] = [:]
-    /// Targets auto-updated this session, recorded directly so no intermediate
-    /// row state can make the once-per-session guard forget. Keyed by target so a
-    /// custom folder's heal never consumes the default's. A manual tap never reads it.
+    /// Targets auto-installed (fresh) or auto-updated (drifted) this session,
+    /// recorded directly so no intermediate row state can make the
+    /// once-per-session guard forget. Keyed by target so a custom folder's heal
+    /// never consumes the default's. A manual tap never reads it.
     public var autoInstalledTargets: Set<AgentInstallTarget> = []
     /// Targets whose config directory exists on disk, resolved by the probe, so
-    /// the Finder-link affordance never stats in a view body.
+    /// the Finder-link affordance never stats in a view body. Also gates
+    /// first-run auto-setup: no config dir means the CLI never ran, so there is
+    /// nothing to wire up.
     public var configDirectoriesOnDisk: Set<AgentInstallTarget> = []
     /// True while the install-more-agents modal is presented. Opening is gated
     /// in the reducer (`agentInstallSheetOpenTapped`) so the sheet is never
@@ -342,9 +345,9 @@ public struct SettingsFeature {
         return .run { [agentIntegrationClient] send in
           // Resolve which config dirs exist off the main thread, so the view's
           // Finder link reads observable state instead of statting in its body.
-          let onDisk = targets.filter {
-            FileManager.default.fileExists(atPath: $0.configDirectory().path(percentEncoded: false))
-          }
+          // The probe rides the client so tests can pin the resolved set
+          // deterministically instead of depending on the machine's home.
+          let onDisk = targets.filter(agentIntegrationClient.configDirectoryExists)
           await send(.agentConfigDirectoriesResolved(Set(onDisk)))
           await withTaskGroup(of: (AgentInstallTarget, Result<AgentIntegrationState, Error>).self) { group in
             for target in targets {
@@ -579,11 +582,27 @@ public struct SettingsFeature {
         // A refresh (not just a completed install) can be what finally empties
         // the modal, e.g. an agent installed externally between activations.
         dismissInstallSheetIfSettled(&state)
-        // Re-install an outdated integration, but only once per session: our
-        // hooks are matched by signal, so `.outdated` means our own components
-        // drifted. Re-arming on every activation would be a silent, unbounded
-        // hook rewrite.
-        guard resolved == .outdated, !state.autoInstalledTargets.contains(target) else { return .none }
+        // Auto-install, at most once per target per session (one guard covers
+        // both arms, so a stacked activation can't re-arm either):
+        // - `.outdated`: our hooks are matched by signal, so drift means our
+        //   own components aged; re-arming on every activation would be a
+        //   silent, unbounded hook rewrite.
+        if resolved == .outdated, !state.autoInstalledTargets.contains(target) {
+          state.autoInstalledTargets.insert(target)
+          return .send(.agentIntegrationInstallTapped(target))
+        }
+        // - `.notInstalled` with the config directory on disk: the CLI ran at
+        //   least once, so wiring its hooks is first-run setup, not a surprise
+        //   write — a fresh user gets badges and the Active hoist without a
+        //   Settings trip. Only the default location auto-installs (custom
+        //   folders exist only by deliberate record), and an explicit uninstall
+        //   opted the target out so a deliberate removal stays removed.
+        guard resolved == .notInstalled,
+          target.location == .standard,
+          state.configDirectoriesOnDisk.contains(target),
+          !state.autoInstalledTargets.contains(target),
+          !Self.isOptedOut(target)
+        else { return .none }
         state.autoInstalledTargets.insert(target)
         return .send(.agentIntegrationInstallTapped(target))
 
@@ -667,11 +686,16 @@ public struct SettingsFeature {
         // install earns a record, an uninstall drops it.
         if expected == .notInstalled {
           Self.removeRecord(for: target)
+          // The removal was deliberate, so opt the target out of auto-setup:
+          // the `.notInstalled` probe must never resurrect it.
+          Self.addOptOutIfMissing(for: target)
           // An uninstalled custom folder has no row to show, so drop it rather
           // than linger as an empty line. The default's row stays and reverts to the prompt.
           if target.location != .standard { state.agentIntegrationStates[target] = nil }
         } else {
           Self.addRecordIfMissing(for: target)
+          // A (re)install is renewed consent, so it clears the auto-setup opt-out.
+          Self.clearOptOut(for: target)
         }
         dismissInstallSheetIfSettled(&state)
         return .none
@@ -1083,6 +1107,31 @@ public struct SettingsFeature {
   private static func removeRecord(for target: AgentInstallTarget) {
     @Shared(.agentsFile) var agentsFile
     $agentsFile.withLock { $0.agents.removeAll { $0.target == target } }
+  }
+
+  /// Whether the user removed this target's integration on purpose, so
+  /// first-run auto-setup (`agentIntegrationChecked`) must leave it alone.
+  private static func isOptedOut(_ target: AgentInstallTarget) -> Bool {
+    @Shared(.agentsFile) var agentsFile
+    return agentsFile.optOuts.contains { $0.target == target }
+  }
+
+  /// Records the target's auto-setup opt-out in `agents.json` (an uninstall).
+  /// Mirrors `addRecordIfMissing`'s critical section so concurrent writers
+  /// can't duplicate the entry.
+  private static func addOptOutIfMissing(for target: AgentInstallTarget) {
+    @Shared(.agentsFile) var agentsFile
+    $agentsFile.withLock { file in
+      guard !file.optOuts.contains(where: { $0.target == target }) else { return }
+      file.optOuts.append(target.installRecord)
+    }
+  }
+
+  /// Clears the target's auto-setup opt-out: a successful install is renewed
+  /// consent, so the next session's auto-setup may keep it healthy again.
+  private static func clearOptOut(for target: AgentInstallTarget) {
+    @Shared(.agentsFile) var agentsFile
+    $agentsFile.withLock { file in file.optOuts.removeAll { $0.target == target } }
   }
 
   private func synchronizeRepositorySelection(for state: inout State) {

@@ -21,12 +21,19 @@ nonisolated enum DroidHookSettingsError: Error {
 // PascalCase event names:
 // - UserPromptSubmit / PreToolUse fire `busy`
 // - PostToolUse fires `idle`
+// - PreToolUse on AskUser / ExitSpecMode fires `awaitingInput`
 // - Notification fires `awaitingInput` and forwards stdin as notification
+// - PreCompact fires `compacting`; the post-compact SessionStart (source
+//   `compact`) ends it, same lifecycle as Claude
 // - Stop fires `idle` and forwards notification
 // - SessionStart fires `sessionStart`
 // - SessionEnd fires `sessionEnd` and `idle`
 private nonisolated struct DroidHooksPayload: Encodable {
-  static let awaitingInputToolMatcher = "AskUserQuestion|ExitPlanMode"
+  /// Droid's own tool names (matchers run against them, not Claude's):
+  /// `AskUser` is the interactive questionnaire tool and `ExitSpecMode`
+  /// proposes a spec for approval. Claude's `AskUserQuestion|ExitPlanMode`
+  /// never matches here.
+  static let awaitingInputToolMatcher = "AskUser|ExitSpecMode"
   private static let timeout = AgentHookSettingsCommand.timeoutSeconds
 
   private static let busy = AgentHookSettingsCommand.compositeCommand(
@@ -39,6 +46,8 @@ private nonisolated struct DroidHooksPayload: Encodable {
     events: [.awaitingInput], forwardStdinAsNotification: false, agent: .droid)
   private static let idleAndNotify = AgentHookSettingsCommand.compositeCommand(
     events: [.idle], forwardStdinAsNotification: true, agent: .droid)
+  private static let compacting = AgentHookSettingsCommand.compositeCommand(
+    events: [.compacting], forwardStdinAsNotification: false, agent: .droid)
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
     events: [.sessionStart], forwardStdinAsNotification: false, agent: .droid)
   private static let sessionEndAndIdle = AgentHookSettingsCommand.compositeCommand(
@@ -60,6 +69,9 @@ private nonisolated struct DroidHooksPayload: Encodable {
     ],
     "PostToolUse": [
       .init(matcher: "", hooks: [.init(command: Self.idle, timeout: Self.timeout)])
+    ],
+    "PreCompact": [
+      .init(hooks: [.init(command: Self.compacting, timeout: Self.timeout)])
     ],
     "Notification": [
       .init(

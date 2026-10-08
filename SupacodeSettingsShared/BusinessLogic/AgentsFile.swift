@@ -15,16 +15,22 @@ public nonisolated struct AgentInstallRecord: Codable, Equatable, Sendable {
 }
 
 /// Contents of `~/.config/supacode/agents.json`: the integrations the user
-/// installed. The on-disk source of truth for which rows exist; the filesystem
-/// probe reconciles live status on top, so a gone target reads as a wrong install.
+/// installed, plus the ones they deliberately removed. The on-disk source of
+/// truth for which rows exist; the filesystem probe reconciles live status on
+/// top, so a gone target reads as a wrong install.
 public nonisolated struct AgentsFile: Codable, Equatable, Sendable {
   public var agents: [AgentInstallRecord]
+  /// Integrations the user uninstalled on purpose, so first-run auto-setup
+  /// must not resurrect them. Same record shape and lenient decoding as
+  /// `agents`; a successful (re)install clears an entry (renewed consent).
+  public var optOuts: [AgentInstallRecord]
 
-  public init(agents: [AgentInstallRecord] = []) {
+  public init(agents: [AgentInstallRecord] = [], optOuts: [AgentInstallRecord] = []) {
     self.agents = agents
+    self.optOuts = optOuts
   }
 
-  enum CodingKeys: String, CodingKey { case agents }
+  enum CodingKeys: String, CodingKey { case agents, optOuts }
 
   /// One array element, decoded so it can never throw: a malformed or
   /// unrecognized record becomes `nil` (and, crucially, still advances the array
@@ -52,6 +58,8 @@ public nonisolated struct AgentsFile: Codable, Equatable, Sendable {
     // record within it drops only itself (see `FailableRecord`).
     let elements = (try? container.decodeIfPresent([FailableRecord].self, forKey: .agents)) ?? []
     agents = elements.compactMap(\.record)
+    let optOutElements = (try? container.decodeIfPresent([FailableRecord].self, forKey: .optOuts)) ?? []
+    optOuts = optOutElements.compactMap(\.record)
   }
 }
 

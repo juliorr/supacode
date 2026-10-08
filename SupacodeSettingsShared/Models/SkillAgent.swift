@@ -5,6 +5,7 @@ public nonisolated enum SkillAgent: String, Equatable, Sendable, CaseIterable, C
   case claude
   case codex
   case copilot
+  case cursor
   case droid
   case grok
   case hermes
@@ -16,14 +17,15 @@ public nonisolated enum SkillAgent: String, Equatable, Sendable, CaseIterable, C
   case pi
 
   /// Path under the user's home where the agent stores its config
-  /// (e.g. `.gemini/antigravity-cli`, `.claude`, `.codex`, `.copilot`, `.factory`,
-  /// `.grok`, `.hermes`, `.kimi-code`, `.kiro`, `.omp/agent`, `.pi/agent`, `.config/opencode`).
+  /// (e.g. `.gemini/antigravity-cli`, `.claude`, `.codex`, `.copilot`, `.cursor`,
+  /// `.factory`, `.grok`, `.hermes`, `.kimi-code`, `.kiro`, `.omp/agent`, `.pi/agent`, `.config/opencode`).
   public var configDirectoryName: String {
     switch self {
     case .antigravity: ".gemini/antigravity-cli"
     case .claude: ".claude"
     case .codex: ".codex"
     case .copilot: ".copilot"
+    case .cursor: ".cursor"
     case .droid: ".factory"
     case .grok: ".grok"
     case .hermes: ".hermes"
@@ -42,6 +44,7 @@ public nonisolated enum SkillAgent: String, Equatable, Sendable, CaseIterable, C
     case .claude: "Claude Code"
     case .codex: "Codex"
     case .copilot: "Copilot CLI"
+    case .cursor: "Cursor Agent"
     case .droid: "Factory Droid"
     case .grok: "Grok Code"
     case .hermes: "Hermes"
@@ -60,6 +63,7 @@ public nonisolated enum SkillAgent: String, Equatable, Sendable, CaseIterable, C
     case .claude: "claude-code-mark"
     case .codex: "codex-mark"
     case .copilot: "copilot-mark"
+    case .cursor: "cursor-mark"
     case .droid: "droid-mark"
     case .grok: "grok-mark"
     case .hermes: "hermes-mark"
@@ -98,7 +102,7 @@ public nonisolated enum SkillAgent: String, Equatable, Sendable, CaseIterable, C
     case .errorDetection:
       self == .claude || self == .antigravity
     case .compactionBadge:
-      self == .claude || self == .droid
+      self == .claude || self == .cursor || self == .droid
     case .notifications:
       self != .opencode
     case .customFolder:

@@ -12,8 +12,8 @@ struct SkillAgentTests {
   @Test func allCasesByDisplayNameOrdersBySettingsLabel() {
     #expect(
       SkillAgent.allCasesByDisplayName.map(\.displayName) == [
-        "Claude Code", "Codex", "Copilot CLI", "Factory Droid", "Google Antigravity", "Grok Code", "Hermes",
-        "Kimi Code", "Kiro CLI", "Oh My Pi", "OpenCode", "Pi",
+        "Claude Code", "Codex", "Copilot CLI", "Cursor Agent", "Factory Droid", "Google Antigravity",
+        "Grok Code", "Hermes", "Kimi Code", "Kiro CLI", "Oh My Pi", "OpenCode", "Pi",
       ]
     )
   }
@@ -23,6 +23,13 @@ struct SkillAgentTests {
     #expect(SkillAgent.droid.displayName == "Factory Droid")
     #expect(SkillAgent.droid.assetName == "droid-mark")
     #expect(SkillAgent.droid.configDirectoryName == ".factory")
+  }
+
+  @Test func cursorIdentityUsesExpectedDisplayAndAssetNames() {
+    #expect(SkillAgent.cursor.rawValue == "cursor")
+    #expect(SkillAgent.cursor.displayName == "Cursor Agent")
+    #expect(SkillAgent.cursor.assetName == "cursor-mark")
+    #expect(SkillAgent.cursor.configDirectoryName == ".cursor")
   }
 
   @Test func antigravityIdentityUsesExpectedDisplayAndAssetNames() {
@@ -74,7 +81,7 @@ struct SkillAgentTests {
       SkillAgent.allCases.filter { $0.supports(.inputNeededBadge) }
         == [.claude, .copilot, .droid, .grok, .kimi, .opencode])
     #expect(SkillAgent.allCases.filter { $0.supports(.errorDetection) } == [.antigravity, .claude])
-    #expect(SkillAgent.allCases.filter { $0.supports(.compactionBadge) } == [.claude, .droid])
+    #expect(SkillAgent.allCases.filter { $0.supports(.compactionBadge) } == [.claude, .cursor, .droid])
     #expect(SkillAgent.allCases.filter { !$0.supports(.notifications) } == [.opencode])
     #expect(SkillAgent.allCases.filter { !$0.supports(.customFolder) } == [.antigravity, .kiro])
   }

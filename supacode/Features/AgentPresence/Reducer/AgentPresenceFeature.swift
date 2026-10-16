@@ -62,11 +62,16 @@ struct AgentPresenceFeature {
     /// arrives over OSC now, so there is no "socket-owned" record to defend
     /// against.
     var pids: Set<pid_t>
+    /// The agent's own session id when its session-start hook carried one;
+    /// persisted alongside the badge so a restart can resume the CLI into
+    /// its own session. Absent for older installs and pid-less seeds.
+    var sessionID: String?
   }
 
   nonisolated struct RestoredRecord: Sendable {
     let alivePids: Set<pid_t>
     let activity: Activity
+    let sessionID: String?
   }
 
   // `nonisolated` is load-bearing here. Without it the @Reducer macro
@@ -169,7 +174,7 @@ struct AgentPresenceFeature {
           let checked = staged.compactMapValues { stage -> RestoredRecord? in
             let alive = stage.pids.filter { Self.isAlive($0) }
             guard !alive.isEmpty else { return nil }
-            return RestoredRecord(alivePids: alive, activity: stage.activity)
+            return RestoredRecord(alivePids: alive, activity: stage.activity, sessionID: stage.sessionID)
           }
           guard !checked.isEmpty else { return }
           await send(.restoreFromSnapshotChecked(records: checked))
@@ -241,13 +246,16 @@ struct AgentPresenceFeature {
       var record = state.records[key] ?? PresenceRecord(pids: [])
       let inserted = record.pids.insert(pid).inserted
       let cleared = Self.normalizeStickyOnRestart(&record)
+      Self.updateSessionID(on: &record, from: event)
       state.records[key] = record
       rebuildPresence(forSurface: event.surfaceID, in: &state)
       return (inserted || cleared) ? [event.surfaceID] : []
     }
     // Pid-less OSC seed: don't clobber a record that already carries a pid.
     guard var record = state.records[key] else {
-      state.records[key] = PresenceRecord(pids: [])
+      var seeded = PresenceRecord(pids: [])
+      Self.updateSessionID(on: &seeded, from: event)
+      state.records[key] = seeded
       rebuildPresence(forSurface: event.surfaceID, in: &state)
       return [event.surfaceID]
     }
@@ -255,6 +263,14 @@ struct AgentPresenceFeature {
     state.records[key] = record
     rebuildPresence(forSurface: event.surfaceID, in: &state)
     return [event.surfaceID]
+  }
+
+  /// A session-start signal carries the agent's freshest session id; every
+  /// other event keeps whatever the start already recorded.
+  private static func updateSessionID(on record: inout PresenceRecord, from event: AgentHookEvent) {
+    if let sessionID = event.sessionID {
+      record.sessionID = sessionID
+    }
   }
 
   /// Resets a sticky `error` / `compacting` record to `idle` on a restart.
@@ -353,6 +369,7 @@ struct AgentPresenceFeature {
   struct StagedRestore: Sendable {
     let pids: Set<pid_t>
     let activity: Activity
+    let sessionID: String?
   }
 
   /// Build the staged-restore dict from the persisted v2 layouts file. No
@@ -383,7 +400,7 @@ struct AgentPresenceFeature {
           guard !pids.isEmpty else { continue }
           let activity = Activity(rawValue: record.activity) ?? .idle
           staged[PresenceKey(agent: agent, surfaceID: surfaceID)] =
-            StagedRestore(pids: pids, activity: activity)
+            StagedRestore(pids: pids, activity: activity, sessionID: record.sessionID)
         }
       }
     }
@@ -410,7 +427,8 @@ struct AgentPresenceFeature {
     for (key, record) in records {
       if state.records[key] != nil { continue }
       // Restored records always have alive pids (pid-less OSC records are dropped in stageRestore).
-      state.records[key] = PresenceRecord(activity: record.activity, pids: record.alivePids)
+      state.records[key] = PresenceRecord(
+        activity: record.activity, pids: record.alivePids, sessionID: record.sessionID)
       dirtySurfaces.insert(key.surfaceID)
     }
     for surfaceID in dirtySurfaces { rebuildPresence(forSurface: surfaceID, in: &state) }
@@ -440,7 +458,8 @@ extension AgentPresenceFeature.State {
       let entry = TerminalLayoutSnapshot.SurfaceAgentRecord(
         agent: key.agent.rawValue,
         pids: record.pids.sorted(),
-        activity: record.activity.rawValue
+        activity: record.activity.rawValue,
+        sessionID: record.sessionID
       )
       result[key.surfaceID, default: []].append(entry)
     }

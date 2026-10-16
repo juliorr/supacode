@@ -1,5 +1,6 @@
 import Foundation
 import GhosttyKit
+import SupacodeSettingsShared
 import Testing
 
 @testable import supacode
@@ -144,6 +145,43 @@ struct TerminalSurfaceRecipeTests {
       )
     )
     #expect(fallback.workingDirectory == worktree.workingDirectory)
+  }
+
+  @Test func planTypesTheResumeCommandAsInitialInput() {
+    let worktree = Self.makeWorktree()
+    let state = TerminalContentState(
+      workingDirectory: nil,
+      resume: ResumeIntent(agent: .claude, sessionID: "abc-123"))
+    let plan = TerminalSurfaceRecipe.plan(
+      for: Self.makeRequest(state: state),
+      seed: TerminalSurfaceRecipe.PlanSeed(
+        terminalState: state,
+        worktree: worktree,
+        socketPath: nil,
+        zmxExecutablePath: nil
+      )
+    )
+    #expect(plan.initialInput == "claude --resume abc-123\n")
+  }
+
+  @Test func planPrefersTheResumeOverTheLaunchInput() {
+    // Restored-from-disk content decodes with no launch, so the two never
+    // coexist in practice; if they ever did, the one-shot resume intent wins.
+    let worktree = Self.makeWorktree()
+    let state = TerminalContentState(
+      workingDirectory: nil,
+      launch: LaunchOverride(initialInput: "echo hi\n"),
+      resume: ResumeIntent(agent: .droid, sessionID: "session-1"))
+    let plan = TerminalSurfaceRecipe.plan(
+      for: Self.makeRequest(state: state),
+      seed: TerminalSurfaceRecipe.PlanSeed(
+        terminalState: state,
+        worktree: worktree,
+        socketPath: nil,
+        zmxExecutablePath: nil
+      )
+    )
+    #expect(plan.initialInput == "droid --resume session-1\n")
   }
 
   @Test func planCarriesTheFrozenFontAndIdentityEnvironment() throws {

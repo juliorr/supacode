@@ -68,7 +68,7 @@ struct TerminalsFeature {
     /// The migrated layouts file finished loading. Consistent records become
     /// `LayoutFeature` states; inconsistent ones fall back to a fresh layout
     /// on first use.
-    case layoutsHydrated(LayoutsFile)
+    case layoutsHydrated(LayoutsFile, resumeIntents: [UUID: ResumeIntent] = [:])
     /// Ensures a layout exists for a worktree and carries its display name for
     /// minted tab titles. Never replaces a live layout.
     case attachLayout(worktreeID: Worktree.ID, titlePrefix: String)
@@ -162,7 +162,7 @@ struct TerminalsFeature {
       case .memoryPressureWarning:
         return reduceMemoryPressureWarning(&state)
 
-      case .layoutsHydrated(let file):
+      case .layoutsHydrated(let file, let resumeIntents):
         state.layoutsAreReadOnly = file.schemaVersion > LayoutsFile.currentSchemaVersion
         // The runtime keys globally by content id and hibernation by tab id, so
         // seed from what is already hydrated and refuse any record that reuses an
@@ -182,7 +182,11 @@ struct TerminalsFeature {
           }
           let worktreeID = Worktree.ID(key)
           guard state.layouts[id: worktreeID] == nil else { continue }
-          state.layouts.append(LayoutFeature.State(id: worktreeID, layout: record.layout))
+          // Restart-resume intents land on the tab states before any content
+          // can provision, so the first spawn of each restored surface types
+          // the agent's resume command into its fresh shell.
+          state.layouts.append(
+            LayoutFeature.State(id: worktreeID, layout: record.layout.applyingResumeIntents(resumeIntents)))
           seenContentIDs.formUnion(contentIDs)
           seenTabIDs.formUnion(tabIDs)
         }

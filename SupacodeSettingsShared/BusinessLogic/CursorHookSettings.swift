@@ -76,8 +76,10 @@ private nonisolated struct CursorHooksPayload: Encodable {
     events: [.idle], forwardStdinAsNotification: true, agent: .cursor)
   private static let compacting = AgentHookSettingsCommand.compositeCommand(
     events: [.compacting], forwardStdinAsNotification: false, agent: .cursor)
+  // sessionStart also forwards the payload's session/chat id on the wire, so
+  // a restart can resume the CLI into its own session.
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
-    events: [.sessionStart], forwardStdinAsNotification: false, agent: .cursor)
+    events: [.sessionStart], forwardStdinAsNotification: false, agent: .cursor, forwardSessionID: true)
   private static let sessionEndAndIdle = AgentHookSettingsCommand.compositeCommand(
     events: [.sessionEnd, .idle], forwardStdinAsNotification: false, agent: .cursor)
 

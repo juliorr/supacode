@@ -58,6 +58,46 @@ struct AgentPresenceFeatureTests {
     #expect(harness.state.records[key]?.pids.isEmpty == true)
   }
 
+  @Test func sessionStartRecordsTheAgentsOwnSessionID() {
+    // The session-start signal carries the agent's own session id so a
+    // restart can resume the CLI into its session; it must land on the
+    // record and flow out through the persisted projection.
+    var harness = Harness()
+    let surfaceID = UUID()
+    let sessionID = "a1b2c3d4-e5f6-7890-abcd-ef0123456789"
+    harness.send(
+      .hookEventReceived(
+        AgentHookEvent(
+          agent: "claude", event: AgentHookEvent.EventName.sessionStart.rawValue,
+          surfaceID: surfaceID, pid: getpid(), sessionID: sessionID)))
+
+    let key = AgentPresenceFeature.PresenceKey(agent: .claude, surfaceID: surfaceID)
+    #expect(harness.state.records[key]?.sessionID == sessionID)
+    #expect(harness.state.agentsBySurface()[surfaceID]?.first?.sessionID == sessionID)
+
+    // Activity events don't carry one, so they keep whatever start recorded.
+    harness.send(
+      .hookEventReceived(
+        AgentHookEvent(
+          agent: "claude", event: AgentHookEvent.EventName.busy.rawValue,
+          surfaceID: surfaceID, pid: getpid())))
+    #expect(harness.state.records[key]?.sessionID == sessionID)
+  }
+
+  @Test func sessionStartWithoutSessionIDKeepsNil() {
+    var harness = Harness()
+    let surfaceID = UUID()
+    harness.send(
+      .hookEventReceived(
+        AgentHookEvent(
+          agent: "droid", event: AgentHookEvent.EventName.sessionStart.rawValue,
+          surfaceID: surfaceID, pid: getpid())))
+
+    let key = AgentPresenceFeature.PresenceKey(agent: .droid, surfaceID: surfaceID)
+    #expect(harness.state.records[key]?.sessionID == nil)
+    #expect(harness.state.agentsBySurface()[surfaceID]?.first?.sessionID == nil)
+  }
+
   // MARK: - Error + compaction.
 
   @Test func errorMarksSurfaceErroredAndHasErrorReportsIt() {
@@ -880,6 +920,29 @@ struct AgentPresenceFeatureTests {
     #expect(harness.state.records[key]?.pids == [livePid])
   }
 
+  @Test func restoreFromLayoutsCarriesThePersistedSessionID() {
+    // A quit-no-reboot relaunch restores the badge from disk; the session id
+    // must ride along or the NEXT save would silently downgrade the resume
+    // path to a fallback once the agent's start event has no reason to refire.
+    var harness = Harness()
+    let surfaceID = UUID()
+    let layout = makeLayout(surfaces: [
+      (
+        surfaceID,
+        [
+          TerminalLayoutSnapshot.SurfaceAgentRecord(
+            agent: "claude", pids: [getpid()], activity: "busy", sessionID: "abc-123")
+        ]
+      )
+    ])
+
+    harness.restoreFromLayouts([layout])
+
+    let key = AgentPresenceFeature.PresenceKey(agent: .claude, surfaceID: surfaceID)
+    #expect(harness.state.records[key]?.sessionID == "abc-123")
+    #expect(harness.state.agentsBySurface()[surfaceID]?.first?.sessionID == "abc-123")
+  }
+
   @Test func restoreFromLayoutsOnlyHydratesSurfacesThatExistInLayouts() {
     // Records live INSIDE layout leaves, so a since-deleted layout's records
     // are gone by construction. This test confirms the implicit filter holds.
@@ -1037,7 +1100,8 @@ struct AgentPresenceFeatureTests {
       let checked = staged.compactMapValues { stage -> AgentPresenceFeature.RestoredRecord? in
         let alive = stage.pids.filter { AgentPresenceFeature.isAlive($0) }
         guard !alive.isEmpty else { return nil }
-        return AgentPresenceFeature.RestoredRecord(alivePids: alive, activity: stage.activity)
+        return AgentPresenceFeature.RestoredRecord(
+          alivePids: alive, activity: stage.activity, sessionID: stage.sessionID)
       }
       guard !checked.isEmpty else { return }
       send(.restoreFromSnapshotChecked(records: checked))

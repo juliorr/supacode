@@ -91,6 +91,62 @@ struct AgentPresenceOSCTests {
     #expect(signal?.pid == 99)
   }
 
+  // MARK: - session field (restart resume).
+
+  @Test func parsesValidSessionField() {
+    let signal = AgentPresenceOSC.parse(
+      id: "claude", metadata: "event=session_start;session=a1b2c3d4-e5f6-7890-abcd-ef0123456789")
+    #expect(signal?.sessionID == "a1b2c3d4-e5f6-7890-abcd-ef0123456789")
+    #expect(signal?.eventRawValue == "session_start")
+  }
+
+  @Test func sessionFieldParsesForEveryResumableAgentShape() {
+    // Claude's uuid, droid's `session-…`, cursor's chat id all fit the charset.
+    for id in ["a1b2c3d4-e5f6-7890-abcd-ef0123456789", "session-0abcDEF_123", "chat.001-xyz"] {
+      let signal = AgentPresenceOSC.parse(id: "claude", metadata: "event=session_start;session=\(id)")
+      #expect(signal?.sessionID == id)
+    }
+  }
+
+  @Test func absentSessionFieldParsesAsNil() {
+    let signal = AgentPresenceOSC.parse(id: "claude", metadata: "event=session_start")
+    #expect(signal?.sessionID == nil)
+  }
+
+  @Test func invalidSessionDropsTheFieldNotTheSignal() {
+    // Shell metacharacters, spaces, and oversized values must never travel to
+    // the resume command builder; the presence signal itself stays usable.
+    for raw in ["$(pwd)", "a b", "héllo", String(repeating: "a", count: 129)] {
+      let signal = AgentPresenceOSC.parse(id: "claude", metadata: "event=session_start;session=\(raw)")
+      #expect(signal != nil)
+      #expect(signal?.sessionID == nil)
+    }
+    // A `;` inside the raw value cannot reach the builder: it is the metadata
+    // delimiter, so the value is truncated there and only the charset-valid
+    // prefix survives.
+    let truncated = AgentPresenceOSC.parse(
+      id: "claude", metadata: "event=session_start;session=abc; rm -rf /")
+    #expect(truncated != nil)
+    #expect(truncated?.sessionID == "abc")
+  }
+
+  @Test func metadataSessionSuffixRoundTripsThroughParse() {
+    let metadata = AgentPresenceOSC.metadata(event: .sessionStart, sessionSuffix: ";session=abc-123")
+    let signal = AgentPresenceOSC.parse(id: "droid", metadata: metadata)
+    #expect(signal?.sessionID == "abc-123")
+    #expect(signal?.eventRawValue == "session_start")
+  }
+
+  @Test func presenceEventThreadsTheSessionID() {
+    let metadata = AgentPresenceOSC.metadata(
+      event: .sessionStart, pidSuffix: ";pid=4242", sessionSuffix: ";session=abc-123")
+    let result = AgentSignal.presenceEvent(
+      id: "claude", metadata: metadata, surfaceID: UUID(), surfaceExists: true)
+    let event = try? result.get()
+    #expect(event?.sessionID == "abc-123")
+    #expect(event?.pid == 4242)
+  }
+
   @Test func presenceEventThreadsLocalPid() {
     let metadata = AgentPresenceOSC.metadata(event: .busy, pidSuffix: ";pid=4242")
     let result = AgentSignal.presenceEvent(

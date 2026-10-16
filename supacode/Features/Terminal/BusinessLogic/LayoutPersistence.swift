@@ -45,7 +45,8 @@ enum LayoutPersistence {
               workingDirectory: state.workingDirectory,
               agents: agents,
               frozenGrid: state.frozenGrid,
-              launch: state.launch
+              launch: state.launch,
+              resume: state.resume
             )
           )
         )
@@ -58,7 +59,7 @@ enum LayoutPersistence {
       for tabIndex in stripped.panes[paneIndex].tabs.indices {
         stripped.panes[paneIndex].tabs[tabIndex].isLocked = false
         guard case .terminal(let state) = stripped.panes[paneIndex].tabs[tabIndex].content.state,
-          state.launch != nil
+          state.launch != nil || state.resume != nil
         else { continue }
         stripped.panes[paneIndex].tabs[tabIndex].content = ContentSnapshot(
           id: stripped.panes[paneIndex].tabs[tabIndex].content.id,

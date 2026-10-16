@@ -940,6 +940,50 @@ struct SettingsFilePersistenceTests {
     #expect(reloaded.global.remoteSessionPersistenceEnabled == false)
   }
 
+  @Test(.dependencies) func decodesMissingRestoreAgentSessionsAfterRestartAsFalse() throws {
+    let legacy = LegacySettingsFile(
+      global: LegacyGlobalSettings(
+        appearanceMode: .dark,
+        updatesAutomaticallyCheckForUpdates: false,
+        updatesAutomaticallyDownloadUpdates: true
+      ),
+      repositories: [:]
+    )
+    let data = try JSONEncoder().encode(legacy.global)
+    let storage = MutableTestStorage(initialData: data)
+
+    let settings: SettingsFile = withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var settings: SettingsFile
+      return settings
+    }
+
+    // Pre-feature files stay off: the resume path types a command into each
+    // restored tab's fresh shell, so it is strictly opt-in.
+    #expect(settings.global.restoreAgentSessionsAfterRestart == false)
+  }
+
+  @Test(.dependencies) func roundTripsExplicitRestoreAgentSessionsAfterRestart() throws {
+    let storage = SettingsTestStorage()
+
+    withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var settings: SettingsFile
+      $settings.withLock { $0.global.restoreAgentSessionsAfterRestart = true }
+    }
+
+    let reloaded: SettingsFile = withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var reloaded: SettingsFile
+      return reloaded
+    }
+
+    #expect(reloaded.global.restoreAgentSessionsAfterRestart == true)
+  }
+
   @Test(.dependencies) func decodesMissingNotificationRetentionLimitAsDefault() throws {
     let legacy = LegacySettingsFile(
       global: LegacyGlobalSettings(

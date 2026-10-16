@@ -59,17 +59,23 @@ nonisolated enum AgentHookSettingsCommand {
   /// single brace group whose output is suppressed. Guarding first keeps the
   /// command truly inert outside Supacode (no `ps` runs when the surface id is
   /// unset). The precondition rejects a no-op invocation that would emit nothing.
+  /// `forwardSessionID` makes the presence emits read the hook's JSON payload and
+  /// carry the agent's own session id on the wire, so a restart can resume the
+  /// CLI into its session. Only the session-start slots turn it on.
   static func compositeCommand(
     events: [HookEvent],
     forwardStdinAsNotification: Bool,
-    agent: SkillAgent
+    agent: SkillAgent,
+    forwardSessionID: Bool = false
   ) -> String {
     precondition(
       !events.isEmpty || forwardStdinAsNotification,
       "compositeCommand needs at least one side-effect (events or stdin forward).",
     )
     var steps: [String] = [AgentPresenceOSC.ttyResolveSnippet]
-    steps += events.map { AgentPresenceOSC.emitShell(event: $0, agent: agent) }
+    steps += events.map {
+      AgentPresenceOSC.emitShell(event: $0, agent: agent, includesSessionID: forwardSessionID)
+    }
     if forwardStdinAsNotification { steps.append(AgentPresenceOSC.emitNotifyShell(agent: agent)) }
     return "\(oscGuardExpr) && { \(steps.joined(separator: "; ")); } >/dev/null 2>&1 || true \(ownershipMarker)"
   }

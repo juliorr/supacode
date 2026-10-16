@@ -53,6 +53,11 @@ nonisolated struct TerminalContentState: Equatable, Codable, Sendable {
   let frozenGrid: FrozenGrid?
   /// Live-only launch override; the persistence path always strips it.
   let launch: LaunchOverride?
+  /// Live-only restart-resume intent (agent CLI + session id) staged onto
+  /// restored tabs whose zmx session died with the machine; the persistence
+  /// path always strips it, and only the first spawn of a rebuilt content
+  /// ever delivers it.
+  let resume: ResumeIntent?
 
   private enum CodingKeys: String, CodingKey {
     case workingDirectory
@@ -64,12 +69,14 @@ nonisolated struct TerminalContentState: Equatable, Codable, Sendable {
     workingDirectory: String?,
     agents: [TerminalLayoutSnapshot.SurfaceAgentRecord]? = nil,
     frozenGrid: FrozenGrid? = nil,
-    launch: LaunchOverride? = nil
+    launch: LaunchOverride? = nil,
+    resume: ResumeIntent? = nil
   ) {
     self.workingDirectory = workingDirectory
     self.agents = agents
     self.frozenGrid = frozenGrid
     self.launch = launch
+    self.resume = resume
   }
 
   init(from decoder: any Decoder) throws {
@@ -82,6 +89,7 @@ nonisolated struct TerminalContentState: Equatable, Codable, Sendable {
       )) ?? nil
     frozenGrid = (try? container.decodeIfPresent(FrozenGrid.self, forKey: .frozenGrid)) ?? nil
     launch = nil
+    resume = nil
   }
 
   func encode(to encoder: any Encoder) throws {

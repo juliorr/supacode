@@ -486,6 +486,10 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
   let event: String
   let surfaceID: UUID
   let pid: pid_t?
+  /// The agent's own session id, carried only by OSC presence signals whose
+  /// emitter forwarded one (session-start hooks). The legacy JSON envelope
+  /// never sets it. Powers the restart-resume path; validated at OSC parse.
+  let sessionID: String?
   let timestamp: Date?
   /// Event-specific payload preserved as opaque JSON. Handlers decode with
   /// their own typed shape via `decodeData(_:)`, keeping this layer decoupled
@@ -542,6 +546,9 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     } else {
       self.pid = nil
     }
+    // The legacy JSON envelope never carries a session id; it is an OSC
+    // presence-signal field only.
+    self.sessionID = nil
     if let rawTimestamp = try container.decodeIfPresent(String.self, forKey: .timestamp) {
       self.timestamp = try? Date(rawTimestamp, strategy: .iso8601)
     } else {
@@ -559,6 +566,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     event: String,
     surfaceID: UUID,
     pid: pid_t? = nil,
+    sessionID: String? = nil,
     timestamp: Date? = nil,
     data: JSONValue? = nil
   ) {
@@ -574,6 +582,7 @@ nonisolated struct AgentHookEvent: Equatable, Sendable, Decodable {
     } else {
       self.pid = pid
     }
+    self.sessionID = sessionID
     self.timestamp = timestamp
     self.data = data
   }

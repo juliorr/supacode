@@ -80,6 +80,14 @@ public struct TerminalSettingsView: View {
             """
           )
         }
+        Toggle(isOn: $store.restoreAgentSessionsAfterRestart) {
+          Text("Restore agent sessions after a restart")
+          Text(
+            "When sessions are gone after a machine restart (or were terminated on quit), "
+              + "restored tabs relaunch the AI CLI that was running and resume its last session: "
+              + "Claude Code, Droid, and Cursor Agent."
+          )
+        }
         Toggle(isOn: $store.terminalHibernationEnabled) {
           HStack(spacing: 6) {
             Text("Hibernate inactive terminals")

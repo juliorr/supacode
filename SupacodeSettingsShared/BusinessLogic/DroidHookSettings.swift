@@ -48,8 +48,10 @@ private nonisolated struct DroidHooksPayload: Encodable {
     events: [.idle], forwardStdinAsNotification: true, agent: .droid)
   private static let compacting = AgentHookSettingsCommand.compositeCommand(
     events: [.compacting], forwardStdinAsNotification: false, agent: .droid)
+  // SessionStart also forwards the payload's session_id on the wire, so a
+  // restart can resume the CLI into its own session.
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
-    events: [.sessionStart], forwardStdinAsNotification: false, agent: .droid)
+    events: [.sessionStart], forwardStdinAsNotification: false, agent: .droid, forwardSessionID: true)
   private static let sessionEndAndIdle = AgentHookSettingsCommand.compositeCommand(
     events: [.sessionEnd, .idle], forwardStdinAsNotification: false, agent: .droid)
 

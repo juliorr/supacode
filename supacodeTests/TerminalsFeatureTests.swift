@@ -705,6 +705,54 @@ struct TerminalsFeatureTests {
     }
   }
 
+  @Test func layoutsHydrationStagesResumeIntentsOntoAgentTabs() async {
+    let paneID = PaneID()
+    let tabID = TabID()
+    let contentID = ContentID()
+    let agents = [
+      TerminalLayoutSnapshot.SurfaceAgentRecord(
+        agent: "claude", pids: [42], activity: "busy", sessionID: "abc-123")
+    ]
+    let persisted = PaneLayout(
+      tree: SplitTree(view: paneID),
+      panes: [
+        Pane(
+          id: paneID,
+          tabs: [
+            TabItem(
+              id: tabID,
+              title: "One",
+              content: ContentSnapshot(
+                id: contentID,
+                state: .terminal(
+                  TerminalContentState(workingDirectory: "/repo", agents: agents))))
+          ],
+          selectedTabID: tabID
+        )
+      ],
+      focusedPaneID: paneID
+    )
+    let file = LayoutsFile(worktrees: ["/tmp/good": LayoutRecord(layout: persisted)])
+    let intents = [contentID.rawValue: ResumeIntent(agent: .claude, sessionID: "abc-123")]
+    let expected = persisted.applyingResumeIntents(intents)
+    let store = TestStore(initialState: TerminalsFeature.State()) { TerminalsFeature() }
+
+    await store.send(.layoutsHydrated(file, resumeIntents: intents)) {
+      $0.layouts = [LayoutFeature.State(id: Worktree.ID("/tmp/good"), layout: expected)]
+    }
+    // The staged layout carries the intent inside the tab's state, or the
+    // first spawn could never type the resume command.
+    guard
+      case .terminal(let state)? =
+        store.state.layouts[id: Worktree.ID("/tmp/good")]?.layout.panes[id: paneID]?.tabs[id: tabID]?
+        .content.state
+    else {
+      Issue.record("Expected a terminal payload on the hydrated tab.")
+      return
+    }
+    #expect(state.resume == ResumeIntent(agent: .claude, sessionID: "abc-123"))
+  }
+
   @Test func layoutsHydrationDropsCrossWorktreeIDCollisions() async {
     let sharedContentID = ContentID()
     let first = Self.layout(paneID: PaneID(), tabID: TabID(), contentID: sharedContentID)

@@ -874,6 +874,92 @@ struct AgentHookCommandTests {
     #expect(signal.pid == ProcessInfo.processInfo.processIdentifier)
   }
 
+  // MARK: - Session-id forwarding (restart resume).
+
+  @Test func resumableAgentsSessionStartHooksForwardTheSessionID() throws {
+    // The session-start command installed for Claude, Droid, and Cursor reads
+    // the hook payload and carries the agent's own session id, so a restart
+    // can resume the CLI into its session. Other agents' session-start hooks
+    // stay byte-identical (no stdin read).
+    let payloads: [SkillAgent: [String: [JSONValue]]] = [
+      .claude: try ClaudeHookSettings.hooksByEvent(),
+      .droid: try DroidHookSettings.hooksByEvent(),
+      .cursor: try CursorHookSettings.hooksByEvent(),
+    ]
+    for (agent, hooks) in payloads {
+      let sessionStartKey = hooks.keys.first { $0.lowercased().contains("sessionstart") }
+      let groups = try #require(sessionStartKey.flatMap { hooks[$0] })
+      let command = try #require(Self.allCommands(in: groups).first)
+      #expect(command.contains("]3008;start=\(agent.rawValue);event=session_start"))
+      #expect(command.contains("session_id"))
+      #expect(command.contains("session="))
+      #expect(command.contains(AgentPresenceOSC.readStdinSnippet))
+      // The busy/idle legs stay session-free.
+      let busyStartKey = hooks.keys.first { $0.lowercased().contains("submitprompt") }
+      if let busyGroups = busyStartKey.flatMap({ hooks[$0] }) {
+        for other in Self.allCommands(in: busyGroups) {
+          #expect(!other.contains("session="))
+        }
+      }
+    }
+
+    // Agents outside the resume set keep a byte-identical session-start hook:
+    // no stdin read, no session field.
+    let codexSessionStart = AgentHookSettingsCommand.compositeCommand(
+      events: [.sessionStart], forwardStdinAsNotification: false, agent: .codex)
+    #expect(!codexSessionStart.contains("session="))
+    #expect(!codexSessionStart.contains(AgentPresenceOSC.readStdinSnippet))
+  }
+
+  /// Commands from hook groups, covering both the Claude-style nested shape
+  /// (`{ hooks: [{ command }] }`) and Cursor's flat entries (`{ command }`).
+  private static func allCommands(in groups: [JSONValue]) -> [String] {
+    groups.flatMap { group in
+      if let nested = group.objectValue?["hooks"]?.arrayValue {
+        return nested.compactMap { $0.objectValue?["command"]?.stringValue }
+      }
+      return [group.objectValue?["command"]?.stringValue].compactMap { $0 }
+    }
+  }
+
+  @Test func sessionStartExtractionRoundTripsThePayloadSessionID() async throws {
+    // The shell-produced OSC must parse back carrying the stdin payload's
+    // session id; a template change that breaks the extraction breaks the
+    // resume path, so pin the whole pipe end to end.
+    let surfaceID = UUID()
+    let sessionID = "a1b2c3d4-e5f6-7890-abcd-ef0123456789"
+    let captured = try await runHookCommandCapturingTTY(
+      AgentHookSettingsCommand.compositeCommand(
+        events: [.sessionStart], forwardStdinAsNotification: false, agent: .claude, forwardSessionID: true),
+      env: [
+        "SUPACODE_SURFACE_ID": surfaceID.uuidString,
+        "SUPACODE_SOCKET_PATH": "/tmp/supacode-rt-\(UUID().uuidString)",
+      ],
+      stdin: #"{"session_id":"\#(sessionID)","hook_event_name":"SessionStart"}"#
+    )
+    let signal = try #require(Self.parsePresence(fromTTY: captured))
+    #expect(signal.agent == "claude")
+    #expect(signal.eventRawValue == "session_start")
+    #expect(signal.sessionID == sessionID)
+  }
+
+  @Test func sessionStartOmitsTheFieldWhenThePayloadHasNoSessionID() async throws {
+    // A payload without a session id (older CLIs, other emitters) must leave
+    // the field off the wire, not emit a dangling `session=`.
+    let captured = try await runHookCommandCapturingTTY(
+      AgentHookSettingsCommand.compositeCommand(
+        events: [.sessionStart], forwardStdinAsNotification: false, agent: .droid, forwardSessionID: true),
+      env: [
+        "SUPACODE_SURFACE_ID": UUID().uuidString,
+        "SUPACODE_SOCKET_PATH": "/tmp/supacode-rt-\(UUID().uuidString)",
+      ],
+      stdin: #"{"hook_event_name":"SessionStart"}"#
+    )
+    let signal = try #require(Self.parsePresence(fromTTY: captured))
+    #expect(signal.eventRawValue == "session_start")
+    #expect(signal.sessionID == nil)
+  }
+
   @Test func presenceStillCarriesPidWhenPSIsUnavailable() async throws {
     // The parent pid comes from `${PPID:-}`, so an unreachable `ps` no longer costs
     // the pid field. Resolving it through `ps -o ppid= -p $$` did: Grok rewrites the
@@ -912,6 +998,10 @@ struct AgentHookCommandTests {
           events: [.idle], forwardStdinAsNotification: true, agent: agent),
         AgentHookSettingsCommand.compositeCommand(
           events: [], forwardStdinAsNotification: true, agent: agent),
+        // The session-forwarding shape the session-start slots install.
+        AgentHookSettingsCommand.compositeCommand(
+          events: [.sessionStart], forwardStdinAsNotification: false, agent: agent,
+          forwardSessionID: true),
       ]
     }
     commands.append(AgentHookSettingsCommand.claudeStopCommand(agent: .claude))

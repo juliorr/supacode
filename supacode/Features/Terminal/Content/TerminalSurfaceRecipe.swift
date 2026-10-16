@@ -220,9 +220,13 @@ nonisolated enum TerminalSurfaceRecipe {
       seed.terminalState.frozenGrid != nil
       ? seed.terminalState.frozenGrid?.fontSize
       : (inherited.fontSize ?? seed.fallbackFontSize)
+    // A restart-resume intent is delivered exactly once, typed into the
+    // fresh shell of a rebuilt surface; it outranks any launch input, which
+    // restored-from-disk content never carries anyway.
+    let resumeInput = seed.terminalState.resume.flatMap(AgentSessionResume.initialInput(for:))
     return SurfacePlan(
       command: launch.command,
-      initialInput: launch.initialInput,
+      initialInput: resumeInput ?? launch.initialInput,
       commandWrapper: launch.commandWrapper,
       environment: environment(
         for: seed.worktree,
@@ -339,7 +343,12 @@ struct TerminalContentBuilder {
           seedState = TerminalContentState(
             workingDirectory: currentState.workingDirectory,
             agents: currentState.agents,
-            frozenGrid: currentState.frozenGrid
+            frozenGrid: currentState.frozenGrid,
+            // The one exception: a restart-resume intent is staged FOR the
+            // first spawn of rebuilt content (the only path that carries
+            // one), so it survives the strip here and never survives a
+            // re-wake.
+            resume: phase == .first ? currentState.resume : nil
           )
         }
         let plan = TerminalSurfaceRecipe.plan(

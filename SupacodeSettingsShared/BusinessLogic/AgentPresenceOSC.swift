@@ -35,10 +35,20 @@ public nonisolated enum AgentPresenceOSC {
 
   static let eventField = "event"
   static let pidField = "pid"
+  static let sessionField = "session"
   static let kindField = "kind"
   static let titleField = "title"
   static let bodyField = "body"
   static let notifyKind = "notify"
+
+  /// Session-id extraction precedence, as an awk `keys` list: Claude-Code-
+  /// compatible payloads lead with `session_id`; the camelCase / chat-spelled
+  /// variants cover emitters that name theirs differently.
+  static let sessionIDWireKeys = "session_id,sessionId,chat_id,chatId"
+
+  /// Session ids are short (a UUID at 36 bytes, `session-…` similar); the cap
+  /// bounds the wire well under libghostty's 2048-byte OSC ceiling.
+  static let sessionIDByteBudget = 128
 
   /// Notify body source keys, in display precedence. Used by the shell extractor
   /// (`emitNotifyShell`); the Pi extension sends its body directly.
@@ -60,6 +70,28 @@ public nonisolated enum AgentPresenceOSC {
     /// so a local hook carries it and a remote one omits it; a forged positive
     /// pid at worst pins a live-looking badge until surface close.
     public let pid: pid_t?
+    /// The agent's own session id (Claude's `session_id`, Droid's, Cursor's
+    /// chat id) when the emitter carried one. Absent for older installs and
+    /// payload shapes; the restart-resume path falls back to a bare or
+    /// cwd-scoped relaunch then.
+    public let sessionID: String?
+  }
+
+  /// Session ids the wire accepts and the resume path may carry: bounded, and
+  /// restricted to an inert charset (no shell metacharacters, no `;` splicing,
+  /// no printf-relevant bytes) so a forged id can never turn the typed
+  /// relaunch command into injected shell syntax. Single source of truth for
+  /// both the parse side and the command builder.
+  public static func isValidSessionID(_ raw: String) -> Bool {
+    guard (1...sessionIDByteBudget).contains(raw.count) else { return false }
+    return raw.unicodeScalars.allSatisfy { scalar in
+      ("a"..."z").contains(scalar)
+        || ("A"..."Z").contains(scalar)
+        || ("0"..."9").contains(scalar)
+        || scalar == "-"
+        || scalar == "_"
+        || scalar == "."
+    }
   }
 
   /// Parse the OSC 3008 context id + raw key=value metadata (as surfaced by
@@ -76,6 +108,7 @@ public nonisolated enum AgentPresenceOSC {
       agent: id,
       eventRawValue: String(rawEvent),
       pid: parsePid(fields[Substring(pidField)]),
+      sessionID: parseSessionID(fields[Substring(sessionField)])
     )
   }
 
@@ -85,6 +118,14 @@ public nonisolated enum AgentPresenceOSC {
   private static func parsePid(_ raw: Substring?) -> pid_t? {
     guard let raw, let value = pid_t(raw), value > 0 else { return nil }
     return value
+  }
+
+  /// Parse the optional `session=` field. Absent parses as nil; a value that
+  /// fails the session-id charset drops the field, not the whole signal.
+  private static func parseSessionID(_ raw: Substring?) -> String? {
+    guard let raw else { return nil }
+    let value = String(raw)
+    return isValidSessionID(value) ? value : nil
   }
 
   /// True when the metadata carries `kind=notify`. Cheap routing check (presence
@@ -182,11 +223,15 @@ public nonisolated enum AgentPresenceOSC {
 
   /// The `key=value` metadata a PRESENCE signal carries (everything after the
   /// context id). `parse` recovers the event from this exact shape. `pidSuffix`
-  /// is appended verbatim (e.g. `;pid=123`) so the emit can splice in a
-  /// shell-built, conditionally-empty suffix. See `notifyMetadata` for the
-  /// notify counterpart.
-  static func metadata(event: HookEvent, pidSuffix: String = "") -> String {
-    "\(eventField)=\(event.rawValue)\(pidSuffix)"
+  /// and `sessionSuffix` are appended verbatim (e.g. `;pid=123`, `;session=…`)
+  /// so the emit can splice in shell-built, conditionally-empty suffixes. See
+  /// `notifyMetadata` for the notify counterpart.
+  static func metadata(
+    event: HookEvent,
+    pidSuffix: String = "",
+    sessionSuffix: String = ""
+  ) -> String {
+    "\(eventField)=\(event.rawValue)\(pidSuffix)\(sessionSuffix)"
   }
 
   /// Shell that resolves `$__ppid` (the hook's parent agent) and its `$__tty`, since
@@ -217,13 +262,35 @@ public nonisolated enum AgentPresenceOSC {
   /// with no resolvable parent stays untracked by the liveness sweep either way. A
   /// forged positive pid at worst pins a live-looking badge until surface close. The
   /// suffix is built in shell and filled into a trailing `%s`.
-  static func emitShell(event: HookEvent, agent: SkillAgent) -> String {
-    // Trailing %s for the shell-built, conditionally-empty pid suffix.
-    let meta = metadata(event: event, pidSuffix: "%s")
+  ///
+  /// When `includesSessionID` is true the command first reads the hook's JSON
+  /// payload from stdin and extracts the agent's own session id (same awk
+  /// extractor, precedence list, and budget as the notify leg). The suffix is
+  /// shell-built and passed as a second `%s`, so the field stays off the wire
+  /// when the payload carries none. Session ids are validated at parse, so a
+  /// hostile value can't travel further than the signal.
+  static func emitShell(
+    event: HookEvent,
+    agent: SkillAgent,
+    includesSessionID: Bool = false
+  ) -> String {
+    // Trailing %s for the shell-built, conditionally-empty pid suffix, plus
+    // a second one for the session suffix when the emit carries it.
+    let meta = metadata(event: event, pidSuffix: "%s", sessionSuffix: includesSessionID ? "%s" : "")
     let payload = #"\033]3008;\#(action(for: event))=\#(agent.rawValue);\#(meta)\033\\"#
-    return #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && [ -n "$__ppid" ] "#
+    var steps = ""
+    if includesSessionID {
+      steps =
+        #"\#(readStdinSnippet); "#
+        + #"__sid=$(printf '%s' "$__in" | LC_ALL=C awk -v keys="\#(sessionIDWireKeys)" "#
+        + #"-v budget=\#(sessionIDByteBudget) '\#(notifyExtractAwk)'); "#
+        + #"__ss=""; [ -n "$__sid" ] && __ss=";\#(sessionField)=$__sid"; "#
+    }
+    steps +=
+      #"__sp=""; [ -n "${SUPACODE_SOCKET_PATH:-}" ] && [ -n "$__ppid" ] "#
       + #"&& __sp=";\#(pidField)=$__ppid"; "#
-      + #"printf '\#(payload)' "$__sp" > "$__tty""#
+      + #"printf '\#(payload)' "$__sp"\#(includesSessionID ? #" "$__ss""# : "") > "$__tty""#
+    return steps
   }
 
   /// The `key=value` metadata a notify signal carries; `title` / `body` are base64.

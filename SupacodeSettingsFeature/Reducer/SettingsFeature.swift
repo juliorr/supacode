@@ -85,6 +85,7 @@ public struct SettingsFeature {
     public var confirmCloseTab: ConfirmCloseTabMode
     public var terminateSessionsOnQuit: Bool
     public var remoteSessionPersistenceEnabled: Bool
+    public var restoreAgentSessionsAfterRestart: Bool
     public var appVisibility: AppVisibility
     public var terminalHibernationEnabled: Bool
     public var chromeTextSize: ChromeTextSize
@@ -231,6 +232,7 @@ public struct SettingsFeature {
       confirmCloseTab = settings.confirmCloseTab
       terminateSessionsOnQuit = settings.terminateSessionsOnQuit
       remoteSessionPersistenceEnabled = settings.remoteSessionPersistenceEnabled
+      restoreAgentSessionsAfterRestart = settings.restoreAgentSessionsAfterRestart
       appVisibility = settings.appVisibility
       terminalHibernationEnabled = settings.terminalHibernationEnabled
       chromeTextSize = settings.chromeTextSize
@@ -424,6 +426,7 @@ public struct SettingsFeature {
         state.confirmCloseTab = normalizedSettings.confirmCloseTab
         state.terminateSessionsOnQuit = normalizedSettings.terminateSessionsOnQuit
         state.remoteSessionPersistenceEnabled = normalizedSettings.remoteSessionPersistenceEnabled
+        state.restoreAgentSessionsAfterRestart = normalizedSettings.restoreAgentSessionsAfterRestart
         state.appVisibility = normalizedSettings.appVisibility
         state.terminalHibernationEnabled = normalizedSettings.terminalHibernationEnabled
         state.chromeTextSize = normalizedSettings.chromeTextSize
@@ -1267,6 +1270,7 @@ extension SettingsFeature.State {
     settings.confirmCloseTab = confirmCloseTab
     settings.terminateSessionsOnQuit = terminateSessionsOnQuit
     settings.remoteSessionPersistenceEnabled = remoteSessionPersistenceEnabled
+    settings.restoreAgentSessionsAfterRestart = restoreAgentSessionsAfterRestart
     settings.appVisibility = appVisibility
     settings.terminalHibernationEnabled = terminalHibernationEnabled
     settings.chromeTextSize = chromeTextSize

@@ -95,6 +95,38 @@ nonisolated struct TerminalLayoutSnapshot: Codable, Equatable, Sendable {
     let agent: String
     let pids: [Int32]
     let activity: String
+    /// The agent's own session id when its session-start hook carried one, so
+    /// a restart can resume the CLI into its own session. Nil on legacy
+    /// layouts, fresh surfaces, and installs predating the field.
+    let sessionID: String?
+
+    init(agent: String, pids: [Int32], activity: String, sessionID: String? = nil) {
+      self.agent = agent
+      self.pids = pids
+      self.activity = activity
+      self.sessionID = sessionID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+      case agent, pids, activity, sessionID
+    }
+
+    init(from decoder: any Decoder) throws {
+      let container = try decoder.container(keyedBy: CodingKeys.self)
+      agent = try container.decode(String.self, forKey: .agent)
+      pids = try container.decode([Int32].self, forKey: .pids)
+      activity = try container.decode(String.self, forKey: .activity)
+      // `try?` so a future shape change drops the field, not the whole entry.
+      sessionID = (try? container.decodeIfPresent(String.self, forKey: .sessionID)) ?? nil
+    }
+
+    func encode(to encoder: any Encoder) throws {
+      var container = encoder.container(keyedBy: CodingKeys.self)
+      try container.encode(agent, forKey: .agent)
+      try container.encode(pids, forKey: .pids)
+      try container.encode(activity, forKey: .activity)
+      try container.encodeIfPresent(sessionID, forKey: .sessionID)
+    }
   }
 
 }

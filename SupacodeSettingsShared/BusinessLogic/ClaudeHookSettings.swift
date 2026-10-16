@@ -40,8 +40,10 @@ private nonisolated struct ClaudeHooksPayload: Encodable {
   // completion. `SessionStart(source: compact)` is what ends the compacting state.
   private static let compacting = AgentHookSettingsCommand.compositeCommand(
     events: [.compacting], forwardStdinAsNotification: false, agent: .claude)
+  // SessionStart also forwards the payload's session_id on the wire, so a
+  // restart can resume the CLI into its own session.
   private static let sessionStart = AgentHookSettingsCommand.compositeCommand(
-    events: [.sessionStart], forwardStdinAsNotification: false, agent: .claude)
+    events: [.sessionStart], forwardStdinAsNotification: false, agent: .claude, forwardSessionID: true)
   private static let sessionEndAndIdle = AgentHookSettingsCommand.compositeCommand(
     events: [.sessionEnd, .idle], forwardStdinAsNotification: false, agent: .claude)
 

@@ -224,11 +224,27 @@ struct SupacodeApp: App {
   /// deferred migration) is migrated in memory as a safety net; the writer
   /// then drops flushes until the on-disk migration succeeds, so the v1 bytes
   /// survive for the next launch.
+  ///
+  /// When the restart-resume setting is on, this is also where the resume
+  /// plan is computed: each restored tab whose persisted zmx session socket
+  /// is gone (a machine restart, or sessions terminated at quit) and whose
+  /// last snapshot hosted a resumable AI CLI gets an intent, staged onto the
+  /// tab state before any content can provision. The socket probe is a plain
+  /// `stat` per agent-bearing surface, so it costs nothing on the main thread.
   @MainActor
   private static func hydrateLayouts(into store: StoreOf<AppFeature>) {
     @Dependency(\.defaultAppStorage) var defaults
     guard case .file(let file) = LayoutsFile.readPersisted(from: defaults) else { return }
-    store.send(.terminals(.layoutsHydrated(file)))
+    @Shared(.settingsFile) var settingsFile
+    let socketDir = ZmxSocketBudget.socketDir()
+    let resumeIntents = AgentSessionResume.intents(
+      in: file,
+      restoreEnabled: settingsFile.global.restoreAgentSessionsAfterRestart,
+      sessionExists: { surfaceID in
+        FileManager.default.fileExists(
+          atPath: socketDir + "/" + ZmxSessionID.make(surfaceID: surfaceID))
+      })
+    store.send(.terminals(.layoutsHydrated(file, resumeIntents: resumeIntents)))
   }
 
   @MainActor

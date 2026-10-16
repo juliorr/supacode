@@ -67,6 +67,41 @@ struct AgentSessionResumeTests {
         == nil)
   }
 
+  @Test func skippingPermissionsAppendsEachClisOwnFlag() {
+    // The flag each CLI documents for its prompts-off mode.
+    #expect(
+      AgentSessionResume.command(
+        for: ResumeIntent(agent: .claude, sessionID: "session-abc123"), skippingPermissions: true)
+        == "claude --resume session-abc123 --dangerously-skip-permissions")
+    #expect(
+      AgentSessionResume.command(
+        for: ResumeIntent(agent: .droid, sessionID: "session-abc123"), skippingPermissions: true)
+        == "droid --resume session-abc123 --auto high")
+    #expect(
+      AgentSessionResume.command(
+        for: ResumeIntent(agent: .cursor, sessionID: "chat-abc-123"), skippingPermissions: true)
+        == "cursor-agent --resume chat-abc-123 --yolo")
+  }
+
+  @Test func skippingPermissionsAlsoCoversTheNoIdFallbacks() {
+    #expect(
+      AgentSessionResume.command(for: ResumeIntent(agent: .claude, sessionID: nil), skippingPermissions: true)
+        == "claude --continue --dangerously-skip-permissions")
+    #expect(
+      AgentSessionResume.command(for: ResumeIntent(agent: .droid, sessionID: nil), skippingPermissions: true)
+        == "droid --auto high")
+    #expect(
+      AgentSessionResume.command(for: ResumeIntent(agent: .cursor, sessionID: nil), skippingPermissions: true)
+        == "cursor-agent --yolo")
+  }
+
+  @Test func skippingPermissionsFlowsIntoTheInitialInput() {
+    #expect(
+      AgentSessionResume.initialInput(
+        for: ResumeIntent(agent: .claude, sessionID: "session-abc123"), skippingPermissions: true)
+        == "claude --resume session-abc123 --dangerously-skip-permissions\n")
+  }
+
   // MARK: - Intent selection.
 
   @Test func intentPicksTheFirstResumableRecord() {

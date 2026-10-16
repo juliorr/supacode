@@ -1,5 +1,7 @@
+import DependenciesTestSupport
 import Foundation
 import GhosttyKit
+import Sharing
 import SupacodeSettingsShared
 import Testing
 
@@ -162,6 +164,25 @@ struct TerminalSurfaceRecipeTests {
       )
     )
     #expect(plan.initialInput == "claude --resume abc-123\n")
+  }
+
+  @Test(.dependencies) func planThreadsTheSkipPermissionsSettingIntoTheResumeInput() {
+    @Shared(.settingsFile) var settingsFile
+    $settingsFile.withLock { $0.global.skipAgentPermissionsOnResume = true }
+    let worktree = Self.makeWorktree()
+    let state = TerminalContentState(
+      workingDirectory: nil,
+      resume: ResumeIntent(agent: .claude, sessionID: "abc-123"))
+    let plan = TerminalSurfaceRecipe.plan(
+      for: Self.makeRequest(state: state),
+      seed: TerminalSurfaceRecipe.PlanSeed(
+        terminalState: state,
+        worktree: worktree,
+        socketPath: nil,
+        zmxExecutablePath: nil
+      )
+    )
+    #expect(plan.initialInput == "claude --resume abc-123 --dangerously-skip-permissions\n")
   }
 
   @Test func planPrefersTheResumeOverTheLaunchInput() {

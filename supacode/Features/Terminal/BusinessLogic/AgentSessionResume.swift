@@ -26,32 +26,53 @@ nonisolated enum AgentSessionResume {
   /// when the agent has no relaunch shape. The session id is re-validated here:
   /// the value round-tripped through the layout file, and the command is typed
   /// verbatim into a shell, so only the inert charset may travel.
-  static func command(for intent: ResumeIntent) -> String? {
+  /// `skippingPermissions` appends each CLI's own prompts-off flag: Claude
+  /// Code `--dangerously-skip-permissions`, Droid `--auto high`, Cursor
+  /// Agent `--yolo`.
+  static func command(for intent: ResumeIntent, skippingPermissions: Bool = false) -> String? {
     let sessionID = intent.sessionID.flatMap {
       AgentPresenceOSC.isValidSessionID($0) ? $0 : nil
     }
+    let skip = skippingPermissions ? permissionSkipFlag(for: intent.agent) : nil
     switch intent.agent {
     case .claude:
       // `--continue` is scoped to the working directory, so the no-id fallback
       // (older hook installs, pre-feature layouts) still lands in the right
       // conversation rather than a picker.
-      return sessionID.map { "claude --resume \($0)" } ?? "claude --continue"
+      return sessionID.map { "claude --resume \($0)\(skip ?? "")" } ?? "claude --continue\(skip ?? "")"
     case .droid:
       // Bare `--resume` picks the globally last-modified session, which can
       // belong to another worktree; without an exact id the safer fallback is
       // a fresh session in the restored tab's directory.
-      return sessionID.map { "droid --resume \($0)" } ?? "droid"
+      return sessionID.map { "droid --resume \($0)\(skip ?? "")" } ?? "droid\(skip ?? "")"
     case .cursor:
-      return sessionID.map { "cursor-agent --resume \($0)" } ?? "cursor-agent"
+      return sessionID.map { "cursor-agent --resume \($0)\(skip ?? "")" } ?? "cursor-agent\(skip ?? "")"
     default:
       return nil
     }
   }
 
+  /// The CLI-specific flag that turns its permission prompts off, in
+  /// command-line form (leading space) or nil when the agent has none.
+  private static func permissionSkipFlag(for agent: SkillAgent) -> String? {
+    switch agent {
+    case .claude:
+      " --dangerously-skip-permissions"
+    case .droid:
+      " --auto high"
+    case .cursor:
+      " --yolo"
+    default:
+      nil
+    }
+  }
+
   /// Shell-ready `initialInput` for a restored surface's first spawn: the
   /// resume command plus Enter.
-  static func initialInput(for intent: ResumeIntent) -> String? {
-    command(for: intent).map { $0 + "\n" }
+  static func initialInput(
+    for intent: ResumeIntent, skippingPermissions: Bool = false
+  ) -> String? {
+    command(for: intent, skippingPermissions: skippingPermissions).map { $0 + "\n" }
   }
 
   /// The agent worth resuming on one surface: the first record whose agent

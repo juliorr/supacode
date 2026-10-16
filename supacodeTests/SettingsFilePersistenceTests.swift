@@ -1003,6 +1003,50 @@ struct SettingsFilePersistenceTests {
     #expect(reloaded.global.restoreAgentSessionsAfterRestart == true)
   }
 
+  @Test(.dependencies) func decodesMissingSkipAgentPermissionsOnResumeAsFalse() throws {
+    let legacy = LegacySettingsFile(
+      global: LegacyGlobalSettings(
+        appearanceMode: .dark,
+        updatesAutomaticallyCheckForUpdates: false,
+        updatesAutomaticallyDownloadUpdates: true
+      ),
+      repositories: [:]
+    )
+    let data = try JSONEncoder().encode(legacy.global)
+    let storage = MutableTestStorage(initialData: data)
+
+    let settings: SettingsFile = withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var settings: SettingsFile
+      return settings
+    }
+
+    // Pre-feature files stay off: skipping permission prompts lets a resumed
+    // agent auto-approve every action, so it is strictly opt-in.
+    #expect(settings.global.skipAgentPermissionsOnResume == false)
+  }
+
+  @Test(.dependencies) func roundTripsExplicitSkipAgentPermissionsOnResume() throws {
+    let storage = SettingsTestStorage()
+
+    withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var settings: SettingsFile
+      $settings.withLock { $0.global.skipAgentPermissionsOnResume = true }
+    }
+
+    let reloaded: SettingsFile = withDependencies {
+      $0.settingsFileStorage = storage.storage
+    } operation: {
+      @Shared(.settingsFile) var reloaded: SettingsFile
+      return reloaded
+    }
+
+    #expect(reloaded.global.skipAgentPermissionsOnResume == true)
+  }
+
   @Test(.dependencies) func decodesMissingNotificationRetentionLimitAsDefault() throws {
     let legacy = LegacySettingsFile(
       global: LegacyGlobalSettings(

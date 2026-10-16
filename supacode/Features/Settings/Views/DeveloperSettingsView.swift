@@ -32,6 +32,29 @@ struct DeveloperSettingsView: View {
       } footer: {
         Text("These features require an installed agent integration.")
       }
+      Section {
+        Toggle(isOn: $store.restoreAgentSessionsAfterRestart) {
+          Text("Restore agent sessions after a restart")
+          Text(
+            "When sessions are gone after a machine restart (or were terminated on quit), "
+              + "restored tabs relaunch the AI CLI that was running and resume its last session: "
+              + "Claude Code, Droid, and Cursor Agent. Windows you kept panes in also reopen."
+          )
+        }
+        Toggle(isOn: $store.skipAgentPermissionsOnResume) {
+          Text("Resume agents without permission prompts")
+          Text(
+            "Resumed agents start with prompts off: Claude Code with --dangerously-skip-permissions, "
+              + "Droid with --auto high, and Cursor Agent with --yolo."
+          )
+        }
+      } header: {
+        Text("Session restore")
+      } footer: {
+        Text(
+          "Skipping prompts lets the agent auto-approve every action it takes in your worktree."
+        )
+      }
       Section("Advanced") {
         Picker(selection: $store.automatedActionPolicy.sending(\.setAutomatedActionPolicy)) {
           ForEach(AutomatedActionPolicy.allCases, id: \.self) { policy in

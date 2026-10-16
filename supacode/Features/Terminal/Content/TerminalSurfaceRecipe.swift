@@ -223,7 +223,11 @@ nonisolated enum TerminalSurfaceRecipe {
     // A restart-resume intent is delivered exactly once, typed into the
     // fresh shell of a rebuilt surface; it outranks any launch input, which
     // restored-from-disk content never carries anyway.
-    let resumeInput = seed.terminalState.resume.flatMap(AgentSessionResume.initialInput(for:))
+    @Shared(.settingsFile) var settingsFile
+    let resumeInput = seed.terminalState.resume.flatMap {
+      AgentSessionResume.initialInput(
+        for: $0, skippingPermissions: settingsFile.global.skipAgentPermissionsOnResume)
+    }
     return SurfacePlan(
       command: launch.command,
       initialInput: resumeInput ?? launch.initialInput,

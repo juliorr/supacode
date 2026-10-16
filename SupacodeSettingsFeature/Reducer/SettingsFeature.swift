@@ -85,6 +85,7 @@ public struct SettingsFeature {
     public var terminateSessionsOnQuit: Bool
     public var remoteSessionPersistenceEnabled: Bool
     public var restoreAgentSessionsAfterRestart: Bool
+    public var skipAgentPermissionsOnResume: Bool
     public var appVisibility: AppVisibility
     public var terminalHibernationEnabled: Bool
     public var chromeTextSize: ChromeTextSize
@@ -225,6 +226,7 @@ public struct SettingsFeature {
       terminateSessionsOnQuit = settings.terminateSessionsOnQuit
       remoteSessionPersistenceEnabled = settings.remoteSessionPersistenceEnabled
       restoreAgentSessionsAfterRestart = settings.restoreAgentSessionsAfterRestart
+      skipAgentPermissionsOnResume = settings.skipAgentPermissionsOnResume
       appVisibility = settings.appVisibility
       terminalHibernationEnabled = settings.terminalHibernationEnabled
       chromeTextSize = settings.chromeTextSize
@@ -416,6 +418,7 @@ public struct SettingsFeature {
         state.terminateSessionsOnQuit = normalizedSettings.terminateSessionsOnQuit
         state.remoteSessionPersistenceEnabled = normalizedSettings.remoteSessionPersistenceEnabled
         state.restoreAgentSessionsAfterRestart = normalizedSettings.restoreAgentSessionsAfterRestart
+        state.skipAgentPermissionsOnResume = normalizedSettings.skipAgentPermissionsOnResume
         state.appVisibility = normalizedSettings.appVisibility
         state.terminalHibernationEnabled = normalizedSettings.terminalHibernationEnabled
         state.chromeTextSize = normalizedSettings.chromeTextSize
@@ -1239,6 +1242,7 @@ extension SettingsFeature.State {
     settings.terminateSessionsOnQuit = terminateSessionsOnQuit
     settings.remoteSessionPersistenceEnabled = remoteSessionPersistenceEnabled
     settings.restoreAgentSessionsAfterRestart = restoreAgentSessionsAfterRestart
+    settings.skipAgentPermissionsOnResume = skipAgentPermissionsOnResume
     settings.appVisibility = appVisibility
     settings.terminalHibernationEnabled = terminalHibernationEnabled
     settings.chromeTextSize = chromeTextSize

@@ -173,6 +173,11 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
   /// reports one. Applies to agent CLIs only (Claude Code, Droid, Cursor
   /// Agent); plain shells and other programs come back empty as today.
   public var restoreAgentSessionsAfterRestart: Bool
+  /// When true, those resumed agent CLIs start with permission prompts off
+  /// (Claude Code `--dangerously-skip-permissions`, Droid `--auto high`,
+  /// Cursor Agent `--yolo`). Opt-in: skipping prompts auto-approves every
+  /// tool call the agent makes.
+  public var skipAgentPermissionsOnResume: Bool
   /// Where Supacode appears: Dock, menu bar, or both.
   public var appVisibility: AppVisibility
   /// Beta: hidden terminal tabs release their renderer after a few minutes of
@@ -231,6 +236,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminateSessionsOnQuit: false,
     remoteSessionPersistenceEnabled: true,
     restoreAgentSessionsAfterRestart: false,
+    skipAgentPermissionsOnResume: false,
     appVisibility: .dockAndMenuBar,
     chromeTextSize: .default
   )
@@ -277,6 +283,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     terminateSessionsOnQuit: Bool = false,
     remoteSessionPersistenceEnabled: Bool = true,
     restoreAgentSessionsAfterRestart: Bool = false,
+    skipAgentPermissionsOnResume: Bool = false,
     appVisibility: AppVisibility = .dockAndMenuBar,
     terminalHibernationEnabled: Bool = true,
     chromeTextSize: ChromeTextSize = .default,
@@ -325,6 +332,7 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     self.terminateSessionsOnQuit = terminateSessionsOnQuit
     self.remoteSessionPersistenceEnabled = remoteSessionPersistenceEnabled
     self.restoreAgentSessionsAfterRestart = restoreAgentSessionsAfterRestart
+    self.skipAgentPermissionsOnResume = skipAgentPermissionsOnResume
     self.appVisibility = appVisibility
     self.terminalHibernationEnabled = terminalHibernationEnabled
     self.chromeTextSize = chromeTextSize
@@ -535,6 +543,10 @@ public nonisolated struct GlobalSettings: Codable, Equatable, Sendable {
     restoreAgentSessionsAfterRestart =
       try container.decodeIfPresent(Bool.self, forKey: .restoreAgentSessionsAfterRestart)
       ?? Self.default.restoreAgentSessionsAfterRestart
+    // Pre-feature files omit this key; skipping prompts is opt-in.
+    skipAgentPermissionsOnResume =
+      try container.decodeIfPresent(Bool.self, forKey: .skipAgentPermissionsOnResume)
+      ?? Self.default.skipAgentPermissionsOnResume
     // Reject unrecognized values (and a mistyped key) from corrupted or
     // hand-edited settings files: a throw here resets the whole file to defaults.
     appVisibility =

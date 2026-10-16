@@ -145,6 +145,9 @@ struct SupacodeApp: App {
     let relocationOutcome = SettingsRelocationMigrator.run()
     @Shared(.settingsFile) var settingsFile
     let initialSettings = settingsFile.global
+    // Launched from a zmx-backed terminal (e.g. `make run-app`), the inherited
+    // ZMX_SESSION turns every `zmx attach` into a switch to that parent session.
+    unsetenv("ZMX_SESSION")
     let infoDictionary = Bundle.main.infoDictionary ?? [:]
     AppCrashReporting.setup(settings: initialSettings, infoDictionary: infoDictionary)
     AppTelemetry.setup(settings: initialSettings, infoDictionary: infoDictionary)

@@ -793,4 +793,98 @@ struct TerminalsFeatureTests {
       $0.layouts = [LayoutFeature.State(id: Worktree.ID("/tmp/good"), layout: good)]
     }
   }
+
+  @Test func hydrationRestoresWindowedPanesAndDrivesTheShellHook() async {
+    let paneID = PaneID()
+    let tabID = TabID()
+    let contentID = ContentID()
+    let layout = Self.layout(paneID: paneID, tabID: tabID, contentID: contentID)
+    let file = LayoutsFile(worktrees: [
+      "/tmp/windowed": LayoutRecord(layout: layout, windowedPaneIDs: [paneID])
+    ])
+    // A live renderer keeps the reconcile's wake path out of the test: the
+    // only observer fire left is the hydration seed this feature adds.
+    let runtime = ContentRuntime()
+    _ = runtime.provision(HibernatableContent(id: contentID), at: .fallback)
+    let observed = LockIsolated<[Worktree.ID]>([])
+    let store = TestStore(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0.contentRuntime = runtime
+      $0[LayoutChangeObserver.self] = LayoutChangeObserver(
+        layoutChanged: { id in observed.withValue { $0.append(id) } })
+    }
+
+    await store.send(.layoutsHydrated(file, restoreWindowedPanes: true)) {
+      $0.layouts = [
+        LayoutFeature.State(id: Worktree.ID("/tmp/windowed"), layout: layout, windowedPaneIDs: [paneID])
+      ]
+    }
+    await store.finish()
+    // The app-shell hook is what reopens the pane window at launch; without it
+    // the seeded pane renders nowhere.
+    #expect(observed.value == [Worktree.ID("/tmp/windowed")])
+  }
+
+  @Test func hydrationKeepsWindowedPanesInlineWhenTheFlagIsOff() async {
+    let paneID = PaneID()
+    let layout = Self.layout(paneID: paneID, tabID: TabID(), contentID: ContentID())
+    let file = LayoutsFile(worktrees: [
+      "/tmp/windowed": LayoutRecord(layout: layout, windowedPaneIDs: [paneID])
+    ])
+    let observed = LockIsolated<[Worktree.ID]>([])
+    let store = TestStore(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0[LayoutChangeObserver.self] = LayoutChangeObserver(
+        layoutChanged: { id in observed.withValue { $0.append(id) } })
+    }
+
+    // Off restores the tabs but re-attaches the pane inline, matching the
+    // pre-feature relaunch behavior.
+    await store.send(.layoutsHydrated(file, restoreWindowedPanes: false)) {
+      $0.layouts = [LayoutFeature.State(id: Worktree.ID("/tmp/windowed"), layout: layout)]
+    }
+    await store.finish()
+    #expect(observed.value.isEmpty)
+  }
+
+  @Test func hydrationClearsTheZoomOfARestoredWindowedPane() async {
+    let paneID = PaneID()
+    let tabID = TabID()
+    let contentID = ContentID()
+    let layout = Self.layout(paneID: paneID, tabID: tabID, contentID: contentID)
+    let zoomed = PaneLayout(
+      tree: SplitTree(view: paneID).settingZoomed(.leaf(view: paneID)),
+      panes: layout.panes,
+      focusedPaneID: paneID
+    )
+    let file = LayoutsFile(worktrees: [
+      "/tmp/windowed": LayoutRecord(layout: zoomed, windowedPaneIDs: [paneID])
+    ])
+    let runtime = ContentRuntime()
+    _ = runtime.provision(HibernatableContent(id: contentID), at: .fallback)
+    let store = TestStore(initialState: TerminalsFeature.State()) {
+      TerminalsFeature()
+    } withDependencies: {
+      $0.contentRuntime = runtime
+    }
+
+    // A zoomed windowed pane would fill the layout with an empty placeholder;
+    // seeding mirrors `reduceEnterWindowMode` and clears the zoom.
+    await store.send(.layoutsHydrated(file, restoreWindowedPanes: true)) {
+      $0.layouts = [
+        LayoutFeature.State(
+          id: Worktree.ID("/tmp/windowed"),
+          layout: PaneLayout(
+            tree: SplitTree(view: paneID),
+            panes: layout.panes,
+            focusedPaneID: paneID
+          ),
+          windowedPaneIDs: [paneID]
+        )
+      ]
+    }
+    await store.finish()
+  }
 }

@@ -67,8 +67,10 @@ struct TerminalsFeature {
     case task
     /// The migrated layouts file finished loading. Consistent records become
     /// `LayoutFeature` states; inconsistent ones fall back to a fresh layout
-    /// on first use.
-    case layoutsHydrated(LayoutsFile, resumeIntents: [UUID: ResumeIntent] = [:])
+    /// on first use. `restoreWindowedPanes` re-seeds each record's panes-in-
+    /// own-windows so a restart rebuilds the workspace's separate windows.
+    case layoutsHydrated(
+      LayoutsFile, resumeIntents: [UUID: ResumeIntent] = [:], restoreWindowedPanes: Bool = false)
     /// Ensures a layout exists for a worktree and carries its display name for
     /// minted tab titles. Never replaces a live layout.
     case attachLayout(worktreeID: Worktree.ID, titlePrefix: String)
@@ -162,13 +164,14 @@ struct TerminalsFeature {
       case .memoryPressureWarning:
         return reduceMemoryPressureWarning(&state)
 
-      case .layoutsHydrated(let file, let resumeIntents):
+      case .layoutsHydrated(let file, let resumeIntents, let restoreWindowedPanes):
         state.layoutsAreReadOnly = file.schemaVersion > LayoutsFile.currentSchemaVersion
         // The runtime keys globally by content id and hibernation by tab id, so
         // seed from what is already hydrated and refuse any record that reuses an
         // id from another worktree (possible in pre-creation-gate layouts).
         var seenContentIDs = Set(state.layouts.flatMap { $0.layout.allContentIDs })
         var seenTabIDs = Set(state.layouts.flatMap { $0.layout.panes.flatMap(\.tabs.ids) })
+        var restoredWindowedWorktrees: [Worktree.ID] = []
         for (key, record) in file.worktrees.sorted(by: { $0.key < $1.key }) {
           guard record.layout.isConsistent else {
             Self.logger.error("Dropping inconsistent persisted layout for \(key)")
@@ -185,14 +188,34 @@ struct TerminalsFeature {
           // Restart-resume intents land on the tab states before any content
           // can provision, so the first spawn of each restored surface types
           // the agent's resume command into its fresh shell.
+          let windowedPaneIDs = restoreWindowedPanes ? record.windowedPaneIDs : []
+          var seededLayout = record.layout.applyingResumeIntents(resumeIntents)
+          // Same invariant `reduceEnterWindowMode` enforces live: a zoomed
+          // windowed pane would fill the layout with an empty placeholder.
+          if case .leaf(let leaf) = seededLayout.tree.zoomed, windowedPaneIDs.contains(leaf) {
+            seededLayout.tree = seededLayout.tree.settingZoomed(nil)
+          }
+          if !windowedPaneIDs.isEmpty {
+            restoredWindowedWorktrees.append(worktreeID)
+          }
           state.layouts.append(
-            LayoutFeature.State(id: worktreeID, layout: record.layout.applyingResumeIntents(resumeIntents)))
+            LayoutFeature.State(
+              id: worktreeID,
+              layout: seededLayout,
+              windowedPaneIDs: windowedPaneIDs))
           seenContentIDs.formUnion(contentIDs)
           seenTabIDs.formUnion(tabIDs)
         }
         // Hydration can land after the first selection; re-diff so the
         // restored hidden tabs arm and the visible selection wakes.
-        return reconcileHibernation(&state)
+        var effects = [reconcileHibernation(&state)]
+        // Seeded panes render in their own windows, but nothing routes a
+        // layout action at launch, so drive the app-shell hook (pane-window
+        // reconcile, persistence debounce) once per restored window.
+        for worktreeID in restoredWindowedWorktrees {
+          effects.append(.run { _ in await layoutChangeObserver.layoutChanged(worktreeID) })
+        }
+        return .merge(effects)
       }
     }
     .forEach(\.layouts, action: \.layouts) {

@@ -610,4 +610,64 @@ struct LayoutsMigratorTests {
       return
     }
   }
+
+  // MARK: - Windowed panes on the record.
+
+  nonisolated private static func singlePaneLayout() -> PaneLayout {
+    let paneID = PaneID()
+    let tab = TabItem(
+      id: TabID(),
+      title: "shell",
+      content: ContentSnapshot(id: ContentID(), state: .terminal(TerminalContentState(workingDirectory: nil)))
+    )
+    return PaneLayout(
+      tree: SplitTree(view: paneID),
+      panes: [Pane(id: paneID, tabs: [tab], selectedTabID: tab.id)],
+      focusedPaneID: paneID
+    )
+  }
+
+  @Test func windowedPaneIDsRoundTripAndRepairUnknownPanes() throws {
+    let layout = Self.singlePaneLayout()
+    let paneID = try #require(layout.panes.first?.id)
+    let record = LayoutRecord(layout: layout, windowedPaneIDs: [paneID, PaneID()])
+
+    // The unknown pane drops at construction, mirroring focusedPaneID's repair.
+    #expect(record.windowedPaneIDs == [paneID])
+
+    let encoded = try JSONEncoder().encode(record)
+    let decoded = try JSONDecoder().decode(LayoutRecord.self, from: encoded)
+    #expect(decoded == record)
+    #expect(decoded.windowedPaneIDs == [paneID])
+  }
+
+  @Test func legacyRecordsDecodeWithNoWindowedPanes() throws {
+    let layout = Self.singlePaneLayout()
+    // Strip the field from a current record to simulate a pre-field legacy
+    // file; decode reads its absence as an empty set, not a failure.
+    var envelope = try #require(
+      try JSONSerialization.jsonObject(with: JSONEncoder().encode(LayoutRecord(layout: layout)))
+        as? [String: Any])
+    envelope.removeValue(forKey: "windowedPaneIDs")
+    let json = try JSONSerialization.data(withJSONObject: envelope)
+
+    let decoded = try JSONDecoder().decode(LayoutRecord.self, from: json)
+    #expect(decoded.windowedPaneIDs.isEmpty)
+    #expect(decoded.layout == layout)
+  }
+
+  @Test func decodedWindowedPanesRepairAgainstTheDecodedLayout() throws {
+    let layout = Self.singlePaneLayout()
+    let paneID = try #require(layout.panes.first?.id)
+    var envelope = try #require(
+      try JSONSerialization.jsonObject(with: JSONEncoder().encode(LayoutRecord(layout: layout)))
+        as? [String: Any])
+    // A foreign pane id in the field survives decode only when the layout
+    // carries the pane; the unknown one drops, not the record.
+    envelope["windowedPaneIDs"] = [paneID.rawValue.uuidString, UUID().uuidString]
+
+    let decoded = try JSONDecoder().decode(
+      LayoutRecord.self, from: JSONSerialization.data(withJSONObject: envelope))
+    #expect(decoded.windowedPaneIDs == [paneID])
+  }
 }

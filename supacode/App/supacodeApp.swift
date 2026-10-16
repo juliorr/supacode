@@ -247,7 +247,15 @@ struct SupacodeApp: App {
         FileManager.default.fileExists(
           atPath: socketDir + "/" + ZmxSessionID.make(surfaceID: surfaceID))
       })
-    store.send(.terminals(.layoutsHydrated(file, resumeIntents: resumeIntents)))
+    store.send(
+      .terminals(
+        .layoutsHydrated(
+          file,
+          resumeIntents: resumeIntents,
+          restoreWindowedPanes: settingsFile.global.restoreAgentSessionsAfterRestart
+        )
+      )
+    )
   }
 
   @MainActor

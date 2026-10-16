@@ -13,6 +13,7 @@ enum LayoutPersistence {
   static func record(
     for layout: PaneLayout,
     origin: TerminalLayoutSnapshot? = nil,
+    windowedPaneIDs: Set<PaneID> = [],
     runtime: ContentRuntime,
     agentsBySurface: [UUID: [TerminalLayoutSnapshot.SurfaceAgentRecord]] = [:]
   ) -> LayoutRecord {
@@ -73,6 +74,7 @@ enum LayoutPersistence {
         )
       }
     }
-    return LayoutRecord(layout: stripped, origin: origin)
+    return LayoutRecord(
+      layout: stripped, origin: origin, windowedPaneIDs: windowedPaneIDs)
   }
 }

@@ -375,7 +375,8 @@ final class PaneWindowManager {
     // stays set for the window menu and assistive tech but never renders.
     window.titleVisibility = .hidden
     window.isReleasedWhenClosed = false
-    // Window mode is never persisted, so restoration has nothing to restore.
+    // The app rebuilds pane windows itself on restart-restore; macOS state
+    // restoration stays off so AppKit never duplicates them.
     window.isRestorable = false
     // `WindowChromeApplier` owns the background; this only avoids a default
     // titlebar flash before the first apply.

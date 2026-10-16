@@ -122,7 +122,9 @@ struct LayoutFeature {
     /// menu command reaches it and it survives structural rebuilds.
     var editingTabID: TabID?
     /// Panes shown in their own windows; the tree keeps their leaves as
-    /// placeholders. Never persisted: a relaunch re-attaches them inline.
+    /// placeholders. Persisted per worktree and re-seeded at hydration when
+    /// the restart-restore setting is on, so pane windows come back after a
+    /// restart; off, a relaunch re-attaches them inline as before.
     var windowedPaneIDs: Set<PaneID> = []
     /// The pane whose close request raised the pending alert, so the host in
     /// that pane's window (main layout or pane window) presents it.

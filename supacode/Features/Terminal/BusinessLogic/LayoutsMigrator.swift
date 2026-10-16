@@ -8,29 +8,52 @@ nonisolated private let migrationLogger = SupaLogger("Layouts")
 /// One worktree's persisted layout plus the write-once pre-migration original.
 nonisolated struct LayoutRecord: Equatable, Codable, Sendable {
   var layout: PaneLayout
+  /// Panes the user kept in their own windows, so a restart can rebuild them
+  /// instead of folding everything back inline. Repaired on every entry path
+  /// against `layout.panes`, mirroring `focusedPaneID`'s decode repair.
+  var windowedPaneIDs: Set<PaneID>
   /// The v1 snapshot verbatim, written once at migration and never read by the
   /// app; enables rollback tooling.
   let origin: TerminalLayoutSnapshot?
 
   private enum CodingKeys: String, CodingKey {
     case layout
+    case windowedPaneIDs
     case origin
   }
 
-  init(layout: PaneLayout, origin: TerminalLayoutSnapshot? = nil) {
+  init(layout: PaneLayout, origin: TerminalLayoutSnapshot? = nil, windowedPaneIDs: Set<PaneID> = []) {
+    // Capture the parameter's panes before any property is initialized: a
+    // closure over `layout` here reads `self.windowedPaneIDs` uninitialized.
+    let knownPanes = layout.panes
     self.layout = layout
     self.origin = origin
+    self.windowedPaneIDs = windowedPaneIDs.filter { knownPanes[id: $0] != nil }
   }
 
   init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    layout = try container.decode(PaneLayout.self, forKey: .layout)
+    let decodedLayout = try container.decode(PaneLayout.self, forKey: .layout)
+    layout = decodedLayout
+    // `try?` so a future shape change drops the field, not the whole record.
+    let decodedWindowed =
+      (try? container.decodeIfPresent([PaneID].self, forKey: .windowedPaneIDs)) ?? []
+    windowedPaneIDs = Set(decodedWindowed).filter { decodedLayout.panes[id: $0] != nil }
     // `try?` so origin rot can never take the live layout down with it.
     origin =
       (try? container.decodeIfPresent(TerminalLayoutSnapshot.self, forKey: .origin)) ?? nil
     if origin == nil, container.contains(.origin) {
       migrationLogger.error("Dropped an unreadable migration origin; rollback tooling loses it.")
     }
+  }
+
+  func encode(to encoder: any Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(layout, forKey: .layout)
+    // Sorted so repeated saves of an unchanged layout stay byte-stable.
+    try container.encode(
+      windowedPaneIDs.sorted { $0.rawValue < $1.rawValue }, forKey: .windowedPaneIDs)
+    try container.encodeIfPresent(origin, forKey: .origin)
   }
 }
 

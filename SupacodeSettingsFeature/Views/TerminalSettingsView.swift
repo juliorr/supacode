@@ -85,7 +85,7 @@ public struct TerminalSettingsView: View {
           Text(
             "When sessions are gone after a machine restart (or were terminated on quit), "
               + "restored tabs relaunch the AI CLI that was running and resume its last session: "
-              + "Claude Code, Droid, and Cursor Agent."
+              + "Claude Code, Droid, and Cursor Agent. Windows you kept panes in also reopen."
           )
         }
         Toggle(isOn: $store.terminalHibernationEnabled) {

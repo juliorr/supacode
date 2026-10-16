@@ -242,6 +242,16 @@ struct LayoutPersistenceTests {
     #expect(state.workingDirectory == "/stored")
   }
 
+  @Test func carriesWindowedPaneIDsIntoTheRecord() {
+    let paneID = PaneID()
+    let record = LayoutPersistence.record(
+      for: layout(paneID: paneID, tabID: TabID(), contentID: ContentID()),
+      windowedPaneIDs: [paneID],
+      runtime: ContentRuntime()
+    )
+    #expect(record.windowedPaneIDs == [paneID])
+  }
+
   @Test func clearsAgentsForLiveContentAbsentFromPresenceMap() {
     let paneID = PaneID()
     let tabID = TabID()
